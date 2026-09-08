@@ -48,9 +48,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import ssl
 import subprocess
 import tarfile
+import tempfile
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -776,23 +778,36 @@ def deploy_mqtt_publisher_if_enabled(
         # Fallback: Skript aus dem Bundle-Verzeichnis
         script_path = os.path.join(mqtt_publisher_dir, INSTALL_MQTT_SCRIPT)
 
-    cmd = [
-        "env",
-        "HOME=/root",
-        f"GATEWAY_IP={gateway_host}",
-        f"GARDENA_SSH_KEY={private_key_path}",
-        f"MQTT_BINARY={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher')}",
-        f"MQTT_SERVICE={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher.service')}",
-        f"MQTT_BROKER_HOST={mqtt_config.broker_host}",
-        f"MQTT_BROKER_PORT={mqtt_config.broker_port}",
-        f"MQTT_BROKER_USER={mqtt_config.broker_user}",
-        f"MQTT_BROKER_PASS={mqtt_config.broker_password}",  # Secret via ENV, nie als Arg
-        f"MQTT_TOPIC_PREFIX={mqtt_config.topic_prefix}",
-        f"MQTT_HA_PREFIX={mqtt_config.ha_prefix}",
-        "bash",
-        script_path,
-    ]
-    rc = runner(cmd)
+    # OpenSSH >= 9 nutzt fuer scp standardmaessig SFTP. Das Gardena-Gateway
+    # stellt jedoch keinen /usr/libexec/sftp-server bereit und akzeptiert nur
+    # das klassische SCP-Protokoll. Ein temporaerer PATH-Wrapper erzwingt -O
+    # fuer alle scp-Aufrufe des signierten Bundle-Installers, ohne das Bundle
+    # selbst zu veraendern.
+    real_scp = shutil.which("scp") or "/usr/bin/scp"
+    with tempfile.TemporaryDirectory(prefix="gardena-scp-") as wrapper_dir:
+        scp_wrapper = os.path.join(wrapper_dir, "scp")
+        with open(scp_wrapper, "w", encoding="utf-8") as handle:
+            handle.write(f'#!/bin/sh\nexec "{real_scp}" -O "$@"\n')
+        os.chmod(scp_wrapper, 0o700)
+
+        cmd = [
+            "env",
+            "HOME=/root",
+            f"PATH={wrapper_dir}:{os.environ.get('PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}",
+            f"GATEWAY_IP={gateway_host}",
+            f"GARDENA_SSH_KEY={private_key_path}",
+            f"MQTT_BINARY={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher')}",
+            f"MQTT_SERVICE={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher.service')}",
+            f"MQTT_BROKER_HOST={mqtt_config.broker_host}",
+            f"MQTT_BROKER_PORT={mqtt_config.broker_port}",
+            f"MQTT_BROKER_USER={mqtt_config.broker_user}",
+            f"MQTT_BROKER_PASS={mqtt_config.broker_password}",  # Secret via ENV, nie als Arg
+            f"MQTT_TOPIC_PREFIX={mqtt_config.topic_prefix}",
+            f"MQTT_HA_PREFIX={mqtt_config.ha_prefix}",
+            "bash",
+            script_path,
+        ]
+        rc = runner(cmd)
     if rc != 0:
         raise OrchestrationError(
             f"MQTT-Publisher-Install-Skript fehlgeschlagen (Exit {rc}). "

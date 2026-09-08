@@ -79,9 +79,16 @@ class MqttDeploymentTests(unittest.TestCase):
 
     def test_install_receives_all_mqtt_values_and_checks_service(self):
         calls = []
+        scp_wrapper_contents = []
 
         def runner(cmd):
             calls.append(list(cmd))
+            if cmd[0] == "env":
+                path_entry = next(value for value in cmd if value.startswith("PATH="))
+                wrapper_dir = path_entry[len("PATH="):].split(":", 1)[0]
+                scp_wrapper_contents.append(
+                    (Path(wrapper_dir) / "scp").read_text(encoding="utf-8")
+                )
             return 0
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -109,6 +116,8 @@ class MqttDeploymentTests(unittest.TestCase):
         self.assertIn("MQTT_BROKER_PORT=2883", install_cmd)
         self.assertIn("MQTT_TOPIC_PREFIX=garden", install_cmd)
         self.assertIn("MQTT_HA_PREFIX=ha", install_cmd)
+        self.assertEqual(len(scp_wrapper_contents), 1)
+        self.assertIn(' -O "$@"', scp_wrapper_contents[0])
         self.assertEqual(calls[1][0], "ssh")
         self.assertIn("systemctl is-active --quiet gardena-mqtt-publisher.service", calls[1][-1])
 
