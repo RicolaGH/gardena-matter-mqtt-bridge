@@ -29,6 +29,9 @@ configuration:
   mqtt_broker_host:
     name: "MQTT broker address"
     description: "IP address or hostname of your MQTT broker (e.g. 192.168.1.10 or homeassistant.local). Leave empty if MQTT is disabled."
+  mqtt_broker_port:
+    name: "MQTT broker port"
+    description: "Port of the MQTT broker (default: 1883)."
   mqtt_broker_user:
     name: "MQTT username"
     description: "Username for authenticating with the MQTT broker. Leave empty if the broker does not require authentication."
@@ -38,3 +41,6 @@ configuration:
   mqtt_topic_prefix:
     name: "MQTT topic prefix"
     description: "Prefix for all MQTT topics published by the gateway (default: gardena). Device state topics follow the pattern <prefix>/<device-hash>/<resource>/state. The device hash is a 4-character FNV-16 fingerprint of the serial number — never the raw serial."
+  mqtt_ha_prefix:
+    name: "Home Assistant discovery prefix"
+    description: "Prefix used for MQTT discovery in Home Assistant (default: homeassistant)."

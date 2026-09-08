@@ -29,6 +29,9 @@ configuration:
   mqtt_broker_host:
     name: "MQTT-Broker-Adresse"
     description: "IP-Adresse oder Hostname des MQTT-Brokers (z. B. 192.168.1.10 oder homeassistant.local). Leer lassen, wenn MQTT deaktiviert ist."
+  mqtt_broker_port:
+    name: "MQTT-Broker-Port"
+    description: "Port des MQTT-Brokers (Standard: 1883)."
   mqtt_broker_user:
     name: "MQTT-Benutzername"
     description: "Benutzername für die Authentifizierung am MQTT-Broker. Leer lassen, wenn der Broker keine Authentifizierung erfordert."
@@ -38,3 +41,6 @@ configuration:
   mqtt_topic_prefix:
     name: "MQTT-Topic-Präfix"
     description: "Präfix für alle vom Gateway publizierten MQTT-Topics (Standard: gardena). Gerätezustand-Topics folgen dem Schema <präfix>/<geräte-hash>/<ressource>/state. Der Geräte-Hash ist ein 4-stelliger FNV-16-Fingerabdruck der Seriennummer — nie die rohe Seriennummer."
+  mqtt_ha_prefix:
+    name: "Home-Assistant-Discovery-Präfix"
+    description: "Präfix für MQTT Discovery in Home Assistant (Standard: homeassistant)."
