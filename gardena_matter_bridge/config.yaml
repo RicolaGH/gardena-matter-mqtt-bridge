@@ -54,15 +54,19 @@ options:
   github_token: ""
   # enable_mqtt: MQTT-Publisher-Dienst aktivieren (additiv, Matter laeuft weiter).
   # mqtt_broker_host: FQDN/IP des MQTT-Brokers (kein Broker auf dem Gateway — nur
+  #   bei enable_mqtt=false leer lassen). mqtt_broker_port: Standard 1883.
   # mqtt_broker_user / mqtt_broker_password: Credentials fuer den Broker.
   #   Passwort als `password`-Typ gespeichert (maskiert, nie geloggt).
   # mqtt_topic_prefix: Topic-Praefix (Standard "gardena"). Geraete-Topics:
   #   <prefix>/<fnv16-hash>/<resource>/state
+  # mqtt_ha_prefix: Home-Assistant-Discovery-Praefix (Standard "homeassistant").
   enable_mqtt: false
   mqtt_broker_host: ""
+  mqtt_broker_port: 1883
   mqtt_broker_user: ""
   mqtt_broker_password: ""
   mqtt_topic_prefix: "gardena"
+  mqtt_ha_prefix: "homeassistant"
 
 # ── Options-Schema (Typen/Validierung; HA-Add-on-Schema) ────────────────────
 schema:
@@ -75,6 +79,8 @@ schema:
   github_token: "password?"
   enable_mqtt: bool
   mqtt_broker_host: str
+  mqtt_broker_port: int(1,65535)
   mqtt_broker_user: str
   mqtt_broker_password: "password?"
   mqtt_topic_prefix: str
+  mqtt_ha_prefix: str

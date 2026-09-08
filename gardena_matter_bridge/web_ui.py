@@ -69,6 +69,9 @@ def _read_env_config() -> dict:
             "GARDENA_PUB_KEY", "/data/ssh/addon_ed25519.pub"),
         "disable_ssh_after": (
             os.environ.get("GARDENA_DISABLE_SSH_AFTER", "false") == "true"),
+        # run.sh exportiert die Add-on-Optionen; das MqttConfig-Objekt muss bis
+        # in den DeployPlan gelangen, damit der normale UI-Deploy MQTT ausfuehrt.
+        "mqtt_config": orch.load_mqtt_config_from_env(),
     }
 
 
@@ -101,6 +104,7 @@ def build_deploy_plan(cfg: dict, *, read_text=None) -> "orch.DeployPlan":
         tag=effective_tag,
         expected_sha256=expected,
         disable_ssh_after=cfg["disable_ssh_after"],
+        mqtt_config=cfg["mqtt_config"],
     )
 
 

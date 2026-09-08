@@ -90,9 +90,11 @@ The login endpoint is `/login` (not `/authentication/login`).
 | `github_token` | password | Optional. Only needed for a **private** bridge release repo. **Never logged.** |
 | `enable_mqtt` | bool | Enable the MQTT publisher service (additive; Matter is not affected) |
 | `mqtt_broker_host` | str | IP/hostname of the MQTT broker |
+| `mqtt_broker_port` | int | MQTT broker port (default `1883`) |
 | `mqtt_broker_user` | str | MQTT broker username |
 | `mqtt_broker_password` | password | MQTT broker password. **Never logged.** |
 | `mqtt_topic_prefix` | str | Topic prefix (default `gardena`) |
+| `mqtt_ha_prefix` | str | Home Assistant discovery prefix (default `homeassistant`) |
 
 ## Troubleshooting — what to include when reporting a problem
 
@@ -205,9 +207,11 @@ Der Login-Endpunkt ist `/login` (nicht `/authentication/login`).
 | `github_token` | password | Optional. Nur fuer ein **privates** Bridge-Release-Repo. **Nie geloggt.** |
 | `enable_mqtt` | bool | MQTT-Publisher-Dienst aktivieren (additiv; Matter wird nicht beeinflusst) |
 | `mqtt_broker_host` | str | IP/Hostname des MQTT-Brokers |
+| `mqtt_broker_port` | int | MQTT-Broker-Port (Standard `1883`) |
 | `mqtt_broker_user` | str | MQTT-Broker-Benutzername |
 | `mqtt_broker_password` | password | MQTT-Broker-Passwort. **Nie geloggt.** |
 | `mqtt_topic_prefix` | str | Topic-Praefix (Standard `gardena`) |
+| `mqtt_ha_prefix` | str | Home-Assistant-Discovery-Praefix (Standard `homeassistant`) |
 
 ## Fehlersuche — was du bei einer Problemmeldung angeben solltest
 

@@ -55,18 +55,20 @@ GITHUB_TOKEN="$(read_opt 'github_token' '')"
 # nur transient an Python durchgereicht (R12).
 
 # enable_mqtt: aktiviert den additiven Publisher-Deploy (Matter laeuft weiter).
-# mqtt_broker_host: FQDN/IP des Brokers; leer = HA-Host als Default genutzt.
+# mqtt_broker_host: FQDN/IP des Brokers; bei enable_mqtt=true zwingend erforderlich.
+# mqtt_broker_port: Port des Brokers (Standard 1883).
 # mqtt_broker_user: MQTT-Zugangsdaten (User).
 # mqtt_broker_password: Secret — NIE loggen, NIE ausgeben (R12).
 # mqtt_topic_prefix: Topic-Praefix (Standard "gardena").
 # mqtt_ha_prefix: HA-Discovery-Prefix (Standard "homeassistant").
 ENABLE_MQTT="$(read_opt 'enable_mqtt' 'false')"
 MQTT_BROKER_HOST="$(read_opt 'mqtt_broker_host' '')"
+MQTT_BROKER_PORT="$(read_opt 'mqtt_broker_port' '1883')"
 MQTT_BROKER_USER="$(read_opt 'mqtt_broker_user' '')"
 MQTT_BROKER_PASSWORD="$(read_opt 'mqtt_broker_password' '')"
 MQTT_TOPIC_PREFIX="$(read_opt 'mqtt_topic_prefix' 'gardena')"
 MQTT_HA_PREFIX="$(read_opt 'mqtt_ha_prefix' 'homeassistant')"
-log "  enable_mqtt=${ENABLE_MQTT}  mqtt_broker_host=${MQTT_BROKER_HOST}  mqtt_topic_prefix=${MQTT_TOPIC_PREFIX}"
+log "  enable_mqtt=${ENABLE_MQTT}  mqtt_broker_host=${MQTT_BROKER_HOST}  mqtt_broker_port=${MQTT_BROKER_PORT}  mqtt_topic_prefix=${MQTT_TOPIC_PREFIX}  mqtt_ha_prefix=${MQTT_HA_PREFIX}"
 # Passwort NIEMALS loggen (R12)
 if [ -n "${MQTT_BROKER_PASSWORD}" ]; then log "  mqtt_broker_password=<gesetzt>"; else log "  mqtt_broker_password=<leer>"; fi
 
@@ -124,6 +126,7 @@ if [ "${ENABLE_WEB_UI}" = "true" ]; then
     # Broker-Passwort NIE loggen (R12) — nur als Env-Var an Python weitergeben.
     export GARDENA_ENABLE_MQTT="${ENABLE_MQTT}"
     export GARDENA_MQTT_BROKER_HOST="${MQTT_BROKER_HOST}"
+    export GARDENA_MQTT_BROKER_PORT="${MQTT_BROKER_PORT}"
     export GARDENA_MQTT_BROKER_USER="${MQTT_BROKER_USER}"
     export GARDENA_MQTT_BROKER_PASSWORD="${MQTT_BROKER_PASSWORD}"
     export GARDENA_MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX}"

@@ -76,6 +76,8 @@ INSTALL_SCRIPTS = (
 # MQTT-Publisher-Install-Skript (additiv, optional).
 # Wird NUR ausgefuehrt wenn enable_mqtt=true (opt-in; Matter laeuft weiter, additiv).
 INSTALL_MQTT_SCRIPT = "install_mqtt_publisher.sh"
+MQTT_SERVICE_NAME = "gardena-mqtt-publisher.service"
+MQTT_SERVICE_STABILITY_DELAY_S = 5
 
 # Name des MQTT-Publisher-Unterverzeichnisses im Release-Bundle.
 BUNDLE_MQTT_PUBLISHER_DIR = "mqtt-publisher"
@@ -658,7 +660,8 @@ class MqttConfig:
     """MQTT-Konfiguration aus Add-on-Optionen.
 
     enable: wenn False -> kein Deploy, kein Start des Publishers.
-    broker_host: FQDN/IP des MQTT-Brokers. Leer = HA-Host (Gateway-IP als Proxy).
+    broker_host: FQDN/IP des MQTT-Brokers. Bei enable=True zwingend erforderlich.
+    broker_port: Port des MQTT-Brokers (Standard 1883).
     broker_user / broker_password: Zugangsdaten. Passwort NIEMALS loggen (R12).
     topic_prefix: Topic-Praefix (Standard "gardena").
     ha_prefix: HA-Discovery-Prefix (Standard "homeassistant").
@@ -666,6 +669,7 @@ class MqttConfig:
 
     enable: bool = False
     broker_host: str = ""
+    broker_port: int = 1883
     broker_user: str = ""
     broker_password: str = ""   # Secret — NIE loggen, NIE in Fehlermeldungen (R12)
     topic_prefix: str = "gardena"
@@ -678,14 +682,37 @@ def load_mqtt_config_from_env() -> MqttConfig:
     Broker-Passwort wird NIE geloggt (R12). Fehlende Optionen -> sicherer Default.
     """
     enable_str = os.environ.get("GARDENA_ENABLE_MQTT", "false").strip().lower()
+    port_value = os.environ.get("GARDENA_MQTT_BROKER_PORT", "1883").strip() or "1883"
+    try:
+        broker_port = int(port_value)
+    except ValueError as exc:
+        raise OrchestrationError(
+            "mqtt_broker_port muss eine ganze Zahl zwischen 1 und 65535 sein."
+        ) from exc
     return MqttConfig(
         enable=(enable_str in ("true", "1", "yes")),
         broker_host=os.environ.get("GARDENA_MQTT_BROKER_HOST", "").strip(),
+        broker_port=broker_port,
         broker_user=os.environ.get("GARDENA_MQTT_BROKER_USER", "").strip(),
         broker_password=os.environ.get("GARDENA_MQTT_BROKER_PASSWORD", ""),
         topic_prefix=os.environ.get("GARDENA_MQTT_TOPIC_PREFIX", "gardena").strip() or "gardena",
         ha_prefix=os.environ.get("GARDENA_MQTT_HA_PREFIX", "homeassistant").strip() or "homeassistant",
     )
+
+
+def validate_mqtt_config(mqtt_config: MqttConfig) -> None:
+    """Validiert aktivierte MQTT-Konfiguration ohne Gateway-Fallback."""
+    if not mqtt_config.enable:
+        return
+    if not mqtt_config.broker_host.strip():
+        raise OrchestrationError(
+            "enable_mqtt=true, aber mqtt_broker_host fehlt. Bitte die IP-Adresse "
+            "oder den Hostnamen des MQTT-Brokers in den Add-on-Optionen eintragen."
+        )
+    if not 1 <= mqtt_config.broker_port <= 65535:
+        raise OrchestrationError(
+            "mqtt_broker_port muss zwischen 1 und 65535 liegen."
+        )
 
 
 def deploy_mqtt_publisher_if_enabled(
@@ -720,6 +747,8 @@ def deploy_mqtt_publisher_if_enabled(
     if not mqtt_config.enable:
         return False  # nicht aktiviert — kein Deploy
 
+    validate_mqtt_config(mqtt_config)
+
     if not mqtt_publisher_dir or not os.path.isdir(mqtt_publisher_dir):
         raise OrchestrationError(
             "enable_mqtt=true, aber das mqtt-publisher/-Verzeichnis fehlt im Release-Bundle. "
@@ -747,8 +776,6 @@ def deploy_mqtt_publisher_if_enabled(
         # Fallback: Skript aus dem Bundle-Verzeichnis
         script_path = os.path.join(mqtt_publisher_dir, INSTALL_MQTT_SCRIPT)
 
-    broker_host = mqtt_config.broker_host or gateway_host  # HA-Host als Default
-
     cmd = [
         "env",
         "HOME=/root",
@@ -756,7 +783,8 @@ def deploy_mqtt_publisher_if_enabled(
         f"GARDENA_SSH_KEY={private_key_path}",
         f"MQTT_BINARY={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher')}",
         f"MQTT_SERVICE={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher.service')}",
-        f"MQTT_BROKER_HOST={broker_host}",
+        f"MQTT_BROKER_HOST={mqtt_config.broker_host}",
+        f"MQTT_BROKER_PORT={mqtt_config.broker_port}",
         f"MQTT_BROKER_USER={mqtt_config.broker_user}",
         f"MQTT_BROKER_PASS={mqtt_config.broker_password}",  # Secret via ENV, nie als Arg
         f"MQTT_TOPIC_PREFIX={mqtt_config.topic_prefix}",
@@ -769,6 +797,28 @@ def deploy_mqtt_publisher_if_enabled(
         raise OrchestrationError(
             f"MQTT-Publisher-Install-Skript fehlgeschlagen (Exit {rc}). "
             "Broker-Konfiguration pruefen (Host/Port/Credentials)."
+        )
+
+    # Ein erfolgreicher Installer-Exit reicht nicht: der Publisher kann nach
+    # wenigen Sekunden wegen einer ungueltigen Laufzeitkonfiguration sterben.
+    check_cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-i", private_key_path,
+        f"root@{gateway_host}",
+        (
+            f"sleep {MQTT_SERVICE_STABILITY_DELAY_S}; "
+            f"systemctl is-active --quiet {MQTT_SERVICE_NAME}"
+        ),
+    ]
+    if runner(check_cmd) != 0:
+        raise OrchestrationError(
+            "Der MQTT-Publisher wurde installiert, laeuft nach dem Start aber "
+            "nicht stabil. Bitte Broker-Adresse, Port und Zugangsdaten pruefen. "
+            "Details auf dem Gateway: "
+            "journalctl -u gardena-mqtt-publisher.service --no-pager"
         )
     return True
 
@@ -912,6 +962,10 @@ def run_full_deploy(
             "gateway_host fehlt — bitte in den Add-on-Optionen setzen "
             "(kein Default/Hardcode im Add-on-Pfad)."
         )
+
+    if plan.mqtt_config is not None:
+        # MQTT-Fehlkonfiguration vor Login/Release/Matter-Deploy melden.
+        validate_mqtt_config(plan.mqtt_config)
 
     # Login-Passwort = device_id[:8]. Leere device_id -> harter Abbruch
     # (derive_login_password wirft), bevor ein Gateway-Aufruf erfolgt.
