@@ -33,6 +33,12 @@ RETRY_SECONDS = 15
 KEEPALIVE_SECONDS = 30
 LOCAL_TUNNEL_PORT = 18443
 START_DURATION_SECONDS = 8 * 60 * 60
+START_ACTION_DURATIONS = {
+    "start_mowing": START_DURATION_SECONDS,
+    "start_1h": 1 * 60 * 60,
+    "start_3h": 3 * 60 * 60,
+    "start_6h": 6 * 60 * 60,
+}
 MOWER_MODELS = {
     "488": ("GARDENA smart SILENO pro/max/free", "gen2"),
     "6146": ("GARDENA smart SILENO", "gen1"),
@@ -257,10 +263,20 @@ class Mower:
     name: str
     generation: str
     data: dict[str, Any]
+    publisher_key: str | None = None
+    publisher_identifier: str | None = None
+
+    @property
+    def legacy_key(self) -> str:
+        return hashlib.sha256(self.device_id.encode()).hexdigest()[:8]
 
     @property
     def key(self) -> str:
-        return hashlib.sha256(self.device_id.encode()).hexdigest()[:8]
+        return self.publisher_key or self.legacy_key
+
+    @property
+    def device_identifier(self) -> str:
+        return self.publisher_identifier or f"gardena_control_{self.legacy_key}"
 
     @property
     def supports_pause(self) -> bool:
@@ -298,15 +314,16 @@ class Mower:
 
     def command(self, action: str) -> list[dict[str, Any]]:
         request_id = str(uuid.uuid4())
+        duration = START_ACTION_DURATIONS.get(action)
         entity: dict[str, Any]
         op: str
         payload: dict[str, Any] | None
         if self.generation == "gen2":
             entity = {"device": self.device_id, "service": "lwm2mserver"}
             op = "execute"
-            if action == "start_mowing":
+            if duration is not None:
                 entity["path"] = "smart_system_mower_api/0/manual_start"
-                payload = {"as": [f"0='{START_DURATION_SECONDS}'"]}
+                payload = {"as": [f"0='{duration}'"]}
             elif action == "dock":
                 entity["path"] = "smart_system_mower_api/0/park_until_further_notice"
                 payload = None
@@ -321,13 +338,13 @@ class Mower:
                 "service": "lemonbeatd",
             }
             op = "write"
-            if action == "start_mowing" and self.generation == "gen1_lona":
+            if duration is not None and self.generation == "gen1_lona":
                 entity["path"] = "lemonbeat/0/mower_timer_with_distance"
-                raw = struct.pack("!HI", 0, START_DURATION_SECONDS)
+                raw = struct.pack("!HI", 0, duration)
                 payload = {"vo": base64.b64encode(raw).decode()}
-            elif action == "start_mowing":
+            elif duration is not None:
                 entity["path"] = "lemonbeat/0/mower_timer"
-                payload = {"vi": START_DURATION_SECONDS}
+                payload = {"vi": duration}
             elif action == "dock":
                 entity["path"] = "lemonbeat/0/action_paused_until_1"
                 raw = (2042).to_bytes(2, "little") + bytes([12, 31, 22, 0])
@@ -411,7 +428,7 @@ def discovery_payload(mower: Mower, topic_prefix: str, availability_topic: str) 
         "payload_available": "online",
         "payload_not_available": "offline",
         "device": {
-            "identifiers": [f"gardena_control_{mower.key}"],
+            "identifiers": [mower.device_identifier],
             "name": mower.name,
             "manufacturer": "GARDENA",
             "model": mower.name,
@@ -420,6 +437,97 @@ def discovery_payload(mower: Mower, topic_prefix: str, availability_topic: str) 
     if mower.supports_pause:
         payload["pause_command_topic"] = f"{base}/command"
     return payload
+
+
+def button_discovery_payload(
+    mower: Mower,
+    topic_prefix: str,
+    availability_topic: str,
+    hours: int,
+) -> dict[str, Any]:
+    return {
+        "name": f"Start {hours} h",
+        "object_id": f"gardena_{mower.key}_start_{hours}h",
+        "unique_id": f"gardena_{mower.key}_start_{hours}h",
+        "command_topic": f"{topic_prefix}/{mower.key}/mower/command",
+        "payload_press": f"start_{hours}h",
+        "availability_topic": availability_topic,
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "icon": "mdi:timer-play-outline",
+        "device": {
+            "identifiers": [mower.device_identifier],
+            "name": mower.name,
+            "manufacturer": "GARDENA",
+            "model": mower.name,
+        },
+    }
+
+
+def publisher_mower_identity(topic: str, payload: str) -> tuple[str, str] | None:
+    """Extract the existing sensor publisher's key and device identifier."""
+    if not topic.endswith("/mower_status/config"):
+        return None
+    try:
+        config = json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    identifiers = (config.get("device") or {}).get("identifiers") or []
+    if isinstance(identifiers, str):
+        identifiers = [identifiers]
+    identifier = next(
+        (
+            value
+            for value in identifiers
+            if isinstance(value, str) and value.startswith("gardena_")
+        ),
+        None,
+    )
+    if identifier is None:
+        return None
+    state_topic = config.get("state_topic", "")
+    parts = state_topic.split("/")
+    key = (
+        parts[1]
+        if len(parts) >= 2 and parts[1]
+        else identifier.removeprefix("gardena_")
+    )
+    return key, identifier
+
+
+def collect_publisher_mower_identities(
+    mqtt: MqttClient,
+    *,
+    timeout_seconds: float = 2.0,
+) -> list[tuple[str, str]]:
+    """Collect retained mower sensor discovery records already held by MQTT."""
+    if mqtt.sock is None:
+        return []
+    identities: list[tuple[str, str]] = []
+    deadline = time.monotonic() + timeout_seconds
+    mqtt.sock.settimeout(0.25)
+    while time.monotonic() < deadline:
+        try:
+            packet_type, flags, body = mqtt.receive()
+        except socket.timeout:
+            continue
+        if packet_type != 3:
+            continue
+        topic, payload, _retained = mqtt.parse_publish(flags, body)
+        identity = publisher_mower_identity(topic, payload)
+        if identity is not None and identity not in identities:
+            identities.append(identity)
+    return identities
+
+
+def adopt_publisher_identities(
+    mowers: list[Mower], identities: list[tuple[str, str]]
+) -> bool:
+    """Merge a single discovered mower with its existing sensor device."""
+    if len(mowers) != 1 or len(identities) != 1:
+        return False
+    mowers[0].publisher_key, mowers[0].publisher_identifier = identities[0]
+    return True
 
 
 class Controller:
@@ -525,9 +633,29 @@ class Controller:
             raise ConnectionError("Gateway control API repair failed")
 
     def publish_discovery(self, mqtt: MqttClient, mower: Mower) -> None:
+        if mower.key != mower.legacy_key:
+            legacy_topic = (
+                f"{self.ha_prefix}/lawn_mower/gardena_{mower.legacy_key}/config"
+            )
+            mqtt.publish(legacy_topic, "", retain=True)
         topic = f"{self.ha_prefix}/lawn_mower/gardena_{mower.key}/config"
         payload = discovery_payload(mower, self.topic_prefix, self.availability_topic)
         mqtt.publish(topic, json.dumps(payload, separators=(",", ":")), retain=True)
+        for hours in (1, 3, 6):
+            button_topic = (
+                f"{self.ha_prefix}/button/gardena_{mower.key}/start_{hours}h/config"
+            )
+            button_payload = button_discovery_payload(
+                mower,
+                self.topic_prefix,
+                self.availability_topic,
+                hours,
+            )
+            mqtt.publish(
+                button_topic,
+                json.dumps(button_payload, separators=(",", ":")),
+                retain=True,
+            )
         self.publish_activity(mqtt, mower)
 
     def publish_activity(self, mqtt: MqttClient, mower: Mower, value: str | None = None) -> None:
@@ -548,7 +676,7 @@ class Controller:
         ws: WebSocketClient | None = None
         try:
             mqtt.connect(self.availability_topic)
-            mqtt.subscribe(f"{self.topic_prefix}/+/mower/command")
+            mqtt.subscribe(f"{self.ha_prefix}/sensor/+/mower_status/config")
             mqtt.publish(self.availability_topic, "online", retain=True)
             self.enable_websocket_api()
             self.start_tunnel()
@@ -557,6 +685,12 @@ class Controller:
             mowers = discover_mowers(ws)
             if not mowers:
                 raise RuntimeError("No supported mower found on gateway")
+            identities = collect_publisher_mower_identities(mqtt)
+            if adopt_publisher_identities(mowers, identities):
+                log("MQTT-Sensoren und Steuerung werden in einem Gerät zusammengeführt")
+            else:
+                log("Keine eindeutige Sensor-Gerätekennung gefunden; Steuerung bleibt separat")
+            mqtt.subscribe(f"{self.topic_prefix}/+/mower/command")
             by_topic = {
                 f"{self.topic_prefix}/{mower.key}/mower/command": mower for mower in mowers
             }
@@ -576,6 +710,7 @@ class Controller:
                     packet_type, flags, body = mqtt.receive()
                     if packet_type == 3:
                         topic, action, retained = mqtt.parse_publish(flags, body)
+                        action = action.strip()
                         mower = by_topic.get(topic)
                         if mower is None or retained:
                             continue
@@ -587,10 +722,11 @@ class Controller:
                             time.monotonic() + 30,
                         )
                         optimistic = {
-                            "start_mowing": "mowing",
                             "dock": "returning",
                             "pause": "paused",
                         }.get(action)
+                        if action in START_ACTION_DURATIONS:
+                            optimistic = "mowing"
                         if optimistic:
                             self.publish_activity(mqtt, mower, optimistic)
                             log(f"Befehl '{action}' an Mäher {mower.key} gesendet")

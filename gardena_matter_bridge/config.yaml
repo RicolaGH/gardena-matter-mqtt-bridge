@@ -4,7 +4,7 @@
 #
 # Schema-Referenz: https://developers.home-assistant.io/docs/add-ons/configuration/
 name: GARDENA Matter & MQTT Bridge
-version: "0.2.1"
+version: "0.3.0"
 slug: gardena_matter_bridge
 description: >-
   Installiert die GARDENA Matter & MQTT Bridge auf dem GARDENA smart Gateway (19005) -
@@ -68,7 +68,8 @@ options:
   mqtt_topic_prefix: "gardena"
   mqtt_ha_prefix: "homeassistant"
   # Native Steuerung direkt aus diesem Add-on: MQTT lawn_mower-Entitaet mit
-  # Start/Dock und modellabhaengig Pause. Keine Zusatzintegration erforderlich.
+  # Start/Dock, modellabhaengig Pause sowie 1/3/6-h-Zeitstart. Die Steuerung
+  # wird mit dem vorhandenen MQTT-Sensorgeraet zusammengefuehrt.
   enable_local_control: true
 
 # ── Options-Schema (Typen/Validierung; HA-Add-on-Schema) ────────────────────
