@@ -16,6 +16,10 @@ import hashlib
 import json
 import os
 import secrets
+import re
+
+from security import ssh_options, validate_host
+from orchestrate import load_mqtt_config_from_env, validate_mqtt_config
 import select
 import socket
 import ssl
@@ -29,6 +33,9 @@ from dataclasses import dataclass
 from typing import Any
 
 
+MAX_PACKET_BYTES = 256 * 1024
+PACKET_TIMEOUT = 15
+MAX_PENDING_COMMANDS = 32
 RETRY_SECONDS = 15
 KEEPALIVE_SECONDS = 30
 LOCAL_TUNNEL_PORT = 18443
@@ -39,6 +46,13 @@ START_ACTION_DURATIONS = {
     "start_3h": 3 * 60 * 60,
     "start_6h": 6 * 60 * 60,
 }
+MOWER_STATUS_VALUE_TEMPLATE = (
+    "{% if value|int in [1,2] %}RUNNING"
+    "{% elif value|int == 3 %}CHARGING"
+    "{% elif value|int >= 4 and value|int <= 8 %}DOCKED"
+    "{% elif value|int >= 9 and value|int <= 13 %}ERROR"
+    "{% else %}STOPPED{% endif %}"
+)
 MOWER_MODELS = {
     "488": ("GARDENA smart SILENO pro/max/free", "gen2"),
     "6146": ("GARDENA smart SILENO", "gen1"),
@@ -122,13 +136,22 @@ class MqttClient:
             raise ConnectionError("MQTT socket is not connected")
         data = bytearray()
         while len(data) < length:
-            chunk = self.sock.recv(length - len(data))
+            remaining = getattr(self, "_packet_deadline", time.monotonic() + PACKET_TIMEOUT) - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Packet deadline exceeded")
+            old_timeout = self.sock.gettimeout()
+            self.sock.settimeout(min(remaining, old_timeout or PACKET_TIMEOUT))
+            try:
+                chunk = self.sock.recv(length - len(data))
+            finally:
+                self.sock.settimeout(old_timeout)
             if not chunk:
                 raise ConnectionError("MQTT connection closed")
             data.extend(chunk)
         return bytes(data)
 
     def receive(self) -> tuple[int, int, bytes]:
+        self._packet_deadline = time.monotonic() + PACKET_TIMEOUT
         first = self._recv_exact(1)[0]
         multiplier = 1
         remaining = 0
@@ -140,6 +163,8 @@ class MqttClient:
             multiplier *= 128
             if multiplier > 128**3:
                 raise ValueError("Invalid MQTT remaining length")
+        if remaining > MAX_PACKET_BYTES:
+            raise ValueError("MQTT packet exceeds size limit")
         body = self._recv_exact(remaining)
         self.last_io = time.monotonic()
         return first >> 4, first & 0x0F, body
@@ -154,8 +179,11 @@ class MqttClient:
             raise ValueError("Invalid MQTT topic length")
         topic = body[2:offset].decode("utf-8")
         qos = (flags >> 1) & 0x03
-        if qos:
-            offset += 2
+        if qos > 0:
+            # Subscription requests QoS 0; higher QoS is not supported here.
+            raise ValueError("Unexpected MQTT publish QoS")
+        if not topic or any(c in topic for c in "#+\x00"):
+            raise ValueError("Invalid MQTT publish topic")
         return topic, body[offset:].decode("utf-8"), bool(flags & 0x01)
 
     def close(self) -> None:
@@ -191,15 +219,35 @@ class WebSocketClient:
         )
         self.sock.sendall(request.encode())
         response = bytearray()
-        while b"\r\n\r\n" not in response and len(response) < 16384:
-            chunk = self.sock.recv(4096)
-            if not chunk:
-                break
-            response.extend(chunk)
-        status = response.split(b"\r\n", 1)[0]
-        if b" 101 " not in status:
+        deadline = time.monotonic() + PACKET_TIMEOUT
+        try:
+            while b"\r\n\r\n" not in response:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or len(response) >= 16384:
+                    raise ConnectionError("WebSocket handshake limit exceeded")
+                self.sock.settimeout(remaining)
+                chunk = self.sock.recv(1)
+                if not chunk:
+                    raise ConnectionError("WebSocket handshake closed")
+                response.extend(chunk)
+            lines = bytes(response).split(b"\r\n")
+            headers = {}
+            for line in lines[1:]:
+                if b":" in line:
+                    name, value = line.split(b":", 1)
+                    headers[name.strip().lower()] = value.strip()
+            expected = base64.b64encode(hashlib.sha1(
+                (key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()
+            ).digest())
+            if (lines[0].split()[1:2] != [b"101"] or
+                headers.get(b"sec-websocket-accept") != expected or
+                headers.get(b"upgrade", b"").lower() != b"websocket" or
+                b"upgrade" not in [v.strip().lower() for v in headers.get(b"connection", b"").split(b",")]):
+                raise ConnectionError("Invalid WebSocket handshake")
+            self.sock.settimeout(PACKET_TIMEOUT)
+        except BaseException:
             self.sock.close()
-            raise ConnectionError(f"WebSocket handshake failed ({status.decode(errors='replace')})")
+            raise
 
     def send_text(self, text: str) -> None:
         data = text.encode()
@@ -216,20 +264,33 @@ class WebSocketClient:
     def _recv_exact(self, length: int) -> bytes:
         data = bytearray()
         while len(data) < length:
-            chunk = self.sock.recv(length - len(data))
+            remaining = getattr(self, "_packet_deadline", time.monotonic() + PACKET_TIMEOUT) - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Packet deadline exceeded")
+            old_timeout = self.sock.gettimeout()
+            self.sock.settimeout(min(remaining, old_timeout or PACKET_TIMEOUT))
+            try:
+                chunk = self.sock.recv(length - len(data))
+            finally:
+                self.sock.settimeout(old_timeout)
             if not chunk:
                 raise ConnectionError("WebSocket connection closed")
             data.extend(chunk)
         return bytes(data)
 
     def receive_text(self) -> str | None:
+        self._packet_deadline = time.monotonic() + PACKET_TIMEOUT
         first, second = self._recv_exact(2)
+        if first & 0x70 or not first & 0x80 or second & 0x80:
+            raise ValueError("Unsupported WebSocket frame flags")
         opcode = first & 0x0F
         length = second & 0x7F
         if length == 126:
             length = struct.unpack("!H", self._recv_exact(2))[0]
         elif length == 127:
             length = struct.unpack("!Q", self._recv_exact(8))[0]
+        if length > MAX_PACKET_BYTES or (opcode >= 8 and length > 125):
+            raise ValueError("WebSocket frame exceeds size limit")
         mask = self._recv_exact(4) if second & 0x80 else b""
         payload = self._recv_exact(length)
         if mask:
@@ -366,6 +427,19 @@ def _nested_value(data: dict[str, Any], *path: str) -> Any:
     return value
 
 
+def gateway_messages(raw):
+    try:
+        messages = json.loads(raw)
+    except (ValueError, RecursionError):
+        return []
+    if not isinstance(messages, list):
+        return []
+    return [m for m in messages if isinstance(m, dict) and
+            isinstance(m.get("entity", {}), dict) and
+            isinstance(m.get("payload", {}), dict) and
+            isinstance(m.get("request_id", ""), str)]
+
+
 def discover_mowers(ws: WebSocketClient) -> list[Mower]:
     request_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
     request = [
@@ -384,7 +458,7 @@ def discover_mowers(ws: WebSocketClient) -> list[Mower]:
         raw = ws.receive_text()
         if raw is None:
             continue
-        for message in json.loads(raw):
+        for message in gateway_messages(raw):
             request_id = message.get("request_id")
             if request_id in pending:
                 pending.remove(request_id)
@@ -464,41 +538,58 @@ def button_discovery_payload(
     }
 
 
-def publisher_mower_identity(topic: str, payload: str) -> tuple[str, str] | None:
-    """Extract the existing sensor publisher's key and device identifier."""
-    if not topic.endswith("/mower_status/config"):
-        return None
+def publisher_mower_identity(topic: str, payload: str, topic_prefix="gardena", ha_prefix="homeassistant") -> tuple[str, str] | None:
+    """Only recognize the publisher's precise topic/schema, never arbitrary JSON."""
     try:
         config = json.loads(payload)
-    except (TypeError, json.JSONDecodeError):
+    except (TypeError, ValueError, RecursionError):
         return None
-    identifiers = (config.get("device") or {}).get("identifiers") or []
+    if not isinstance(config, dict):
+        return None
+    device = config.get("device")
+    if not isinstance(device, dict) or device.get("manufacturer") != "GARDENA":
+        return None
+    identifiers = device.get("identifiers")
     if isinstance(identifiers, str):
         identifiers = [identifiers]
-    identifier = next(
-        (
-            value
-            for value in identifiers
-            if isinstance(value, str) and value.startswith("gardena_")
-        ),
-        None,
-    )
-    if identifier is None:
+    if not isinstance(identifiers, list) or len(identifiers) != 1:
         return None
-    state_topic = config.get("state_topic", "")
-    parts = state_topic.split("/")
-    key = (
-        parts[1]
-        if len(parts) >= 2 and parts[1]
-        else identifier.removeprefix("gardena_")
-    )
+    identifier = identifiers[0]
+    if not isinstance(identifier, str) or not re.fullmatch(r"gardena_[0-9a-f]{4}", identifier):
+        return None
+    key = identifier.removeprefix("gardena_")
+    if topic != f"{ha_prefix}/sensor/{identifier}/mower_status/config":
+        return None
+    if config.get("state_topic") not in {f"{topic_prefix}/{key}/status/state", f"{topic_prefix}/{key}/mower_status/state"}:
+        return None
     return key, identifier
+
+
+def corrected_mower_status_discovery(topic: str, payload: str, *, allowed_keys=(), topic_prefix="gardena", ha_prefix="homeassistant") -> str | None:
+    identity = publisher_mower_identity(topic, payload, topic_prefix, ha_prefix)
+    if identity is None or identity[0] not in allowed_keys:
+        return None
+    config = json.loads(payload)
+    if config.get("value_template") == MOWER_STATUS_VALUE_TEMPLATE:
+        return None
+    config["value_template"] = MOWER_STATUS_VALUE_TEMPLATE
+    return json.dumps(config, separators=(",", ":"))
+
+
+def repair_mower_status_discovery(mqtt: MqttClient, topic: str, payload: str, **scope) -> bool:
+    corrected = corrected_mower_status_discovery(topic, payload, **scope)
+    if corrected is None:
+        return False
+    mqtt.publish(topic, corrected, retain=True)
+    log("MQTT-Mäherstatus korrigiert: Status 8 wird als DOCKED angezeigt")
+    return True
 
 
 def collect_publisher_mower_identities(
     mqtt: MqttClient,
     *,
     timeout_seconds: float = 2.0,
+    topic_prefix="gardena", ha_prefix="homeassistant",
 ) -> list[tuple[str, str]]:
     """Collect retained mower sensor discovery records already held by MQTT."""
     if mqtt.sock is None:
@@ -514,8 +605,10 @@ def collect_publisher_mower_identities(
         if packet_type != 3:
             continue
         topic, payload, _retained = mqtt.parse_publish(flags, body)
-        identity = publisher_mower_identity(topic, payload)
+        identity = publisher_mower_identity(topic, payload, topic_prefix, ha_prefix)
         if identity is not None and identity not in identities:
+            if len(identities) >= 64:
+                raise ValueError("Too many discovery identities")
             identities.append(identity)
     return identities
 
@@ -532,13 +625,14 @@ def adopt_publisher_identities(
 
 class Controller:
     def __init__(self) -> None:
-        self.gateway = os.environ["GARDENA_GATEWAY_HOST"].strip()
+        validate_mqtt_config(load_mqtt_config_from_env())
+        self.gateway = validate_host(os.environ["GARDENA_GATEWAY_HOST"].strip())
         device_id = os.environ["GARDENA_DEVICE_ID"].strip()
         if len(device_id) < 8:
             raise ValueError("Gateway device ID is missing or too short")
         self.gateway_password = device_id[:8]
         self.private_key = os.environ.get("GARDENA_PRIV_KEY", "/data/ssh/addon_ed25519")
-        self.broker_host = os.environ["GARDENA_MQTT_BROKER_HOST"].strip()
+        self.broker_host = validate_host(os.environ["GARDENA_MQTT_BROKER_HOST"].strip())
         self.broker_port = int(os.environ.get("GARDENA_MQTT_BROKER_PORT", "1883"))
         self.broker_user = os.environ.get("GARDENA_MQTT_BROKER_USER", "")
         self.broker_password = os.environ.get("GARDENA_MQTT_BROKER_PASSWORD", "")
@@ -575,7 +669,7 @@ class Controller:
         self.tunnel = subprocess.Popen(
             [
                 "ssh", "-N", "-T",
-                "-o", "StrictHostKeyChecking=no",
+                *ssh_options(),
                 "-o", "BatchMode=yes",
                 "-o", "ExitOnForwardFailure=yes",
                 "-o", "ServerAliveInterval=30",
@@ -616,7 +710,7 @@ class Controller:
             [
                 "ssh",
                 "-T",
-                "-o", "StrictHostKeyChecking=no",
+                *ssh_options(),
                 "-o", "BatchMode=yes",
                 "-o", "ConnectTimeout=5",
                 "-i", self.private_key,
@@ -685,11 +779,14 @@ class Controller:
             mowers = discover_mowers(ws)
             if not mowers:
                 raise RuntimeError("No supported mower found on gateway")
-            identities = collect_publisher_mower_identities(mqtt)
+            identities = collect_publisher_mower_identities(mqtt, topic_prefix=self.topic_prefix, ha_prefix=self.ha_prefix)
             if adopt_publisher_identities(mowers, identities):
                 log("MQTT-Sensoren und Steuerung werden in einem Gerät zusammengeführt")
             else:
                 log("Keine eindeutige Sensor-Gerätekennung gefunden; Steuerung bleibt separat")
+            repair_keys = {mower.key for mower in mowers if mower.publisher_key and mower.generation != "gen2"}
+            # Re-subscribe after association to receive retained records for scoped repair.
+            mqtt.subscribe(f"{self.ha_prefix}/sensor/+/mower_status/config")
             mqtt.subscribe(f"{self.topic_prefix}/+/mower/command")
             by_topic = {
                 f"{self.topic_prefix}/{mower.key}/mower/command": mower for mower in mowers
@@ -710,11 +807,19 @@ class Controller:
                     packet_type, flags, body = mqtt.receive()
                     if packet_type == 3:
                         topic, action, retained = mqtt.parse_publish(flags, body)
+                        if repair_mower_status_discovery(mqtt, topic, action, allowed_keys=repair_keys, topic_prefix=self.topic_prefix, ha_prefix=self.ha_prefix):
+                            continue
                         action = action.strip()
                         mower = by_topic.get(topic)
                         if mower is None or retained:
                             continue
-                        command = mower.command(action)
+                        if len(pending_commands) >= MAX_PENDING_COMMANDS:
+                            continue
+                        try:
+                            command = mower.command(action)
+                        except ValueError:
+                            log("Unsupported mower command ignored")
+                            continue
                         ws.send_text(json.dumps(command, separators=(",", ":")))
                         pending_commands[command[0]["request_id"]] = (
                             mower,
@@ -733,7 +838,7 @@ class Controller:
                 if ws_buffered or ws.sock in readable:
                     raw = ws.receive_text()
                     if raw:
-                        for message in json.loads(raw):
+                        for message in gateway_messages(raw):
                             pending = pending_commands.pop(message.get("request_id"), None)
                             if pending is not None:
                                 mower, action, _deadline = pending
@@ -755,25 +860,32 @@ class Controller:
                     mqtt.ping()
         finally:
             try:
-                mqtt.publish(self.availability_topic, "offline", retain=True)
-            except OSError:
+                if mqtt.sock is not None:
+                    mqtt.publish(self.availability_topic, "offline", retain=True)
+            except Exception:
                 pass
-            mqtt.close()
-            if ws is not None:
-                ws.close()
+            for client in (mqtt, ws):
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
             if self.tunnel is not None:
                 self.tunnel.terminate()
                 try:
                     self.tunnel.wait(timeout=5)
                 except subprocess.TimeoutExpired:
                     self.tunnel.kill()
+                    self.tunnel.wait(timeout=5)
                 self.tunnel = None
 
     def run_forever(self) -> None:
         while True:
             try:
                 self.run_once()
-            except (OSError, ValueError, RuntimeError, TimeoutError, urllib.error.URLError) as exc:
+            except Exception as exc:
+                # An unexpected malformed gateway/broker response must not kill control.
+                # Log only the type; exception strings may contain credentials.
                 log(f"Noch nicht bereit ({type(exc).__name__}); neuer Versuch in {RETRY_SECONDS}s")
             time.sleep(RETRY_SECONDS)
 

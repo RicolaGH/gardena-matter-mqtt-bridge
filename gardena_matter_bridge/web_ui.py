@@ -221,13 +221,47 @@ def _read_asset(name: str) -> bytes:
         return fh.read()
 
 
+class IngressServer(ThreadingHTTPServer):
+    daemon_threads = True
+    # Bound workers, including clients that connect but never finish headers.
+    slots = threading.BoundedSemaphore(16)
+
+    def process_request(self, request, client_address):
+        if not self.slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.slots.release()
+
+
 class Handler(BaseHTTPRequestHandler):
+    def setup(self):
+        super().setup()
+        self.connection.settimeout(10)
+
+    def _allow_ingress(self):
+        if self.client_address[0] != "172.30.32.2":
+            self._send_json(403, {"error": "Ingress access required"})
+            return False
+        return True
+
     server_version = "GardenaMatterAddon/0.1"
 
     def _send(self, code: int, body: bytes, ctype: str = "text/html; charset=utf-8") -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(body)
 
@@ -235,6 +269,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(code, json.dumps(obj).encode("utf-8"), "application/json")
 
     def do_GET(self) -> None:  # noqa: N802
+        if not self._allow_ingress():
+            return
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
             self._send(200, _read_asset("index.html"))
@@ -251,6 +287,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"not found")
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._allow_ingress():
+            return
         path = self.path.split("?", 1)[0]
         if path == "/api/deploy":
             # Deploy ist SCHARF — startet den echten Flow asynchron.
@@ -301,7 +339,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
-    server = ThreadingHTTPServer(("0.0.0.0", 8099), Handler)
+    server = IngressServer(("0.0.0.0", 8099), Handler)
     print("[gardena-ui] Ingress-Status-UI laeuft auf :8099")
     server.serve_forever()
 

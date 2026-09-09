@@ -39,7 +39,9 @@ set -euo pipefail
 # GATEWAY_IP: Positional $1 ODER Env GATEWAY_IP ODER RFC5737-TEST-NET-Platzhalter.
 GATEWAY_IP="${1:-${GATEWAY_IP:-192.0.2.1}}"
 SSH_KEY="${GARDENA_SSH_KEY:-${HOME:-/root}/.ssh/id_ed25519}"
-SSH_OPTS="-i ${SSH_KEY} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${HOME:-/root}/.ssh/known_hosts_gardena -o ConnectTimeout=15"
+SSH_OPTS=(-i "${SSH_KEY}" -o StrictHostKeyChecking=accept-new
+    -o "UserKnownHostsFile=${GARDENA_KNOWN_HOSTS:-/data/ssh/known_hosts_gardena}"
+    -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15)
 GW="root@${GATEWAY_IP}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -79,13 +81,13 @@ if [ ! -f "${WEB_UI_SRC}/matter.html" ]; then
 fi
 
 # ── SSH-Test ───────────────────────────────────────────────────────────
-ssh ${SSH_OPTS} "${GW}" 'echo "SSH OK; hostname=$(hostname)"' \
+ssh "${SSH_OPTS[@]}" "${GW}" 'echo "SSH OK; hostname=$(hostname)"' \
     && log "SSH zum Gateway OK" \
     || { log "ERROR: SSH fehlgeschlagen"; exit 1; }
 
 # ── Alte Web-UI-Reste deaktivieren (falls aktiv) ──────────────────────
 log "=== Alte Dienste deaktivieren (falls aktiv) ==="
-ssh ${SSH_OPTS} "${GW}" << 'CLEANUP_EOF'
+ssh "${SSH_OPTS[@]}" "${GW}" << 'CLEANUP_EOF'
 # Toggle-Daemon stoppen BEVOR der Binary ueberschrieben wird (ETXTBSY-Fix).
 # Reihenfolge: zuerst Socket entwaffnen (verhindert Neuaktivierung), dann
 # persistenten Daemon beenden (gibt /etc/gardena-matter/gardena-toggle frei).
@@ -113,7 +115,7 @@ CLEANUP_EOF
 
 # ── Verzeichnisse anlegen ──────────────────────────────────────────────
 log "=== Overlay-Verzeichnisse anlegen ==="
-ssh ${SSH_OPTS} "${GW}" "mkdir -p ${INSTALL_DIR} && mkdir -p ${ASSETS_DST}"
+ssh "${SSH_OPTS[@]}" "${GW}" "mkdir -p ${INSTALL_DIR} && mkdir -p ${ASSETS_DST}"
 
 # ── __BUILD_VERSION__ im matter.html ersetzen ─────────────────────────
 # Platzhalter __BUILD_VERSION__ -> echte Release-Version (kein "dev" bei Deploy aus Bundle).
@@ -193,18 +195,18 @@ log "=== Persistente Ablage in ${INSTALL_DIR}/ ==="
 # gardena-toggle: atomar via .new + mv (haertend gegen Rest-ETXTBSY).
 # Der Toggle-Daemon wurde oben bereits gestoppt; mv ist dennoch atomarer als
 # direktes scp, falls auf dem Gateway unerwartete Prozesse das Binary noch halten.
-scp -O ${SSH_OPTS} \
+scp -O "${SSH_OPTS[@]}" \
     "${WEB_UI_SRC}/gardena-toggle" \
     "${GW}:${INSTALL_DIR}/gardena-toggle.new"
-ssh ${SSH_OPTS} "${GW}" "mv -f ${INSTALL_DIR}/gardena-toggle.new ${INSTALL_DIR}/gardena-toggle && chmod +x ${INSTALL_DIR}/gardena-toggle"
-scp -O ${SSH_OPTS} \
+ssh "${SSH_OPTS[@]}" "${GW}" "mv -f ${INSTALL_DIR}/gardena-toggle.new ${INSTALL_DIR}/gardena-toggle && chmod +x ${INSTALL_DIR}/gardena-toggle"
+scp -O "${SSH_OPTS[@]}" \
     "${WEB_UI_SRC}/update-matter-status.sh" \
     "${WEB_UI_SRC}/qrcode.min.js" \
     "${GW}:${INSTALL_DIR}/"
 # matter.html mit gesetzter Version (Ziel-Dateiname explizit gesetzt)
-scp -O ${SSH_OPTS} "${MATTER_HTML_TMP}" "${GW}:${INSTALL_DIR}/matter.html"
+scp -O "${SSH_OPTS[@]}" "${MATTER_HTML_TMP}" "${GW}:${INSTALL_DIR}/matter.html"
 
-ssh ${SSH_OPTS} "${GW}" "
+ssh "${SSH_OPTS[@]}" "${GW}" "
     chmod +x ${INSTALL_DIR}/update-matter-status.sh
     chmod 644 ${INSTALL_DIR}/matter.html
     chmod 644 ${INSTALL_DIR}/qrcode.min.js
@@ -213,7 +215,7 @@ log "Binary + Skripte + Web-Dateien in ${INSTALL_DIR}/ abgelegt"
 
 # ── /assets/ befuellen (Live-Pfad, unauth) ────────────────────────────
 log "=== /assets/ befuellen (Browser-ladbar, unauth) ==="
-ssh ${SSH_OPTS} "${GW}" "
+ssh "${SSH_OPTS[@]}" "${GW}" "
     cp ${INSTALL_DIR}/matter.html    ${ASSETS_DST}/matter.html
     cp ${INSTALL_DIR}/qrcode.min.js  ${ASSETS_DST}/qrcode.min.js
     chmod 644 ${ASSETS_DST}/matter.html
@@ -224,7 +226,7 @@ log "matter.html + qrcode.min.js in ${ASSETS_DST}/ installiert"
 
 # ── systemd-Units uebertragen ──────────────────────────────────────────
 log "=== systemd-Units installieren ==="
-scp -O ${SSH_OPTS} \
+scp -O "${SSH_OPTS[@]}" \
     "${WEB_UI_SRC}/gardena-matter-toggle.socket" \
     "${WEB_UI_SRC}/gardena-matter-toggle.service" \
     "${WEB_UI_SRC}/gardena-matter-status.service" \
@@ -235,7 +237,7 @@ scp -O ${SSH_OPTS} \
 
 # ── systemctl-Setup ───────────────────────────────────────────────────
 log "=== systemctl-Setup ==="
-ssh ${SSH_OPTS} "${GW}" << 'UNITEOF'
+ssh "${SSH_OPTS[@]}" "${GW}" << 'UNITEOF'
 systemctl daemon-reload
 
 # Toggle-Socket enablen + starten
@@ -279,7 +281,7 @@ UNITEOF
 
 # ── Footprint-Check ───────────────────────────────────────────────────
 log "=== Footprint-Check ==="
-ssh ${SSH_OPTS} "${GW}" "
+ssh "${SSH_OPTS[@]}" "${GW}" "
     echo '--- /etc/gardena-matter ---'
     du -sh ${INSTALL_DIR}/
     echo '--- /assets/ ---'
@@ -296,7 +298,7 @@ LOCAL_HTML_MD5=$(md5sum "${WEB_UI_SRC}/matter.html"       | awk '{print $1}')
 LOCAL_QR_MD5=$(md5sum   "${WEB_UI_SRC}/qrcode.min.js"    | awk '{print $1}')
 LOCAL_BIN_MD5=$(md5sum  "${WEB_UI_SRC}/gardena-toggle"    | awk '{print $1}')
 
-ssh ${SSH_OPTS} "${GW}" "
+ssh "${SSH_OPTS[@]}" "${GW}" "
     GW_HTML_MD5=\$(md5sum ${ASSETS_DST}/matter.html        2>/dev/null | awk '{print \$1}' || echo 'MISSING')
     GW_QR_MD5=\$(  md5sum ${ASSETS_DST}/qrcode.min.js      2>/dev/null | awk '{print \$1}' || echo 'MISSING')
     GW_BIN_MD5=\$( md5sum ${INSTALL_DIR}/gardena-toggle    2>/dev/null | awk '{print \$1}' || echo 'MISSING')
@@ -310,7 +312,7 @@ ssh ${SSH_OPTS} "${GW}" "
 
 # ── /assets/matter.html → 200 UNAUTH pruefen ─────────────────────────
 log "=== /assets/matter.html unauth (curl auf 127.0.0.1) ==="
-ssh ${SSH_OPTS} "${GW}" "
+ssh "${SSH_OPTS[@]}" "${GW}" "
     HTTP_CODE=\$(curl -s -o /dev/null -w '%{http_code}' --insecure https://127.0.0.1/assets/matter.html 2>/dev/null)
     echo \"curl https://127.0.0.1/assets/matter.html → HTTP \${HTTP_CODE}\"
     [ \"\${HTTP_CODE}\" = '200' ] && echo 'PASS: /assets/matter.html 200 unauth' || echo 'WARN: Erwartet 200, got \${HTTP_CODE}'

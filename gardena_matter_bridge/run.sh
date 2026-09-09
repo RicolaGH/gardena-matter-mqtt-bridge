@@ -130,6 +130,16 @@ export GARDENA_MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX}"
 export GARDENA_MQTT_HA_PREFIX="${MQTT_HA_PREFIX}"
 export GARDENA_ENABLE_LOCAL_CONTROL="${ENABLE_LOCAL_CONTROL}"
 
+export GARDENA_KNOWN_HOSTS="${KEY_DIR}/known_hosts_gardena"
+if [ ! -f "${GARDENA_KNOWN_HOSTS}" ]; then
+    umask 077
+    touch "${GARDENA_KNOWN_HOSTS}"
+    for old in /root/.ssh/known_hosts_gardena /root/.ssh/known_hosts; do
+        if [ -f "$old" ]; then cat "$old" >> "${GARDENA_KNOWN_HOSTS}"; fi
+    done
+fi
+chmod 600 "${GARDENA_KNOWN_HOSTS}"
+
 CONTROL_PID=""
 cleanup_control() {
     if [ -n "${CONTROL_PID}" ]; then
@@ -141,7 +151,7 @@ trap cleanup_control EXIT INT TERM
 
 if [ "${ENABLE_MQTT}" = "true" ] && [ "${ENABLE_LOCAL_CONTROL}" = "true" ]; then
     log "Starte native MQTT-Mäher-Steuerung direkt im Add-on ..."
-    python3 "${ADDON_DIR}/mqtt_control.py" &
+    python3 "${ADDON_DIR}/supervise_control.py" &
     CONTROL_PID=$!
 fi
 

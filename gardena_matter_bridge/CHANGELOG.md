@@ -1,3 +1,13 @@
+## 0.3.2 — Security hardening
+
+- Restrict the deployment UI to Home Assistant Ingress.
+- Reject malformed/oversized MQTT and WebSocket input; supervise the control worker.
+- Scope mower discovery repairs to associated publisher records.
+- Persist SSH host keys and reject key changes (first use remains TOFU).
+- Replace upstream MQTT installer with stdin-based configuration transfer.
+- Verify releases before gateway changes; isolate extraction and apply SSH disable policy on failure.
+- Add security regression tests and CI. See SECURITY-HARDENING.md for remaining risks and gateway validation.
+
 # Changelog
 
 ## 0.3.1

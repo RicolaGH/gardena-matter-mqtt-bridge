@@ -273,6 +273,7 @@ def run_deploy(
     # Native deploy runner (injectable for tests)
     _nd_runner = native_deploy_runner or _real_native_runner
 
+    orchestrate.validate_host(gateway_ip)
     if not gateway_ip:
         raise orchestrate.OrchestrationError(
             "gateway_host fehlt — bitte Gateway-IP eingeben."
@@ -305,27 +306,6 @@ def run_deploy(
             http=_http_client,
         )
 
-        _progress("Checking SSH reachability... / SSH-Erreichbarkeit pruefen...")
-        # Use IdentitiesOnly=yes probe instead of orchestrate.ssh_reachable()
-        # to avoid false negatives when an ssh-agent with multiple keys is running.
-        if _ssh_reachable_with_key(_ssh_probe_runner, gateway_ip, private_key_path):
-            # SSH already reachable (key installed, enable still active)
-            result.steps.append("ssh_already_available")
-            _progress("SSH already available, skipping auth. / SSH bereits erreichbar, Auth ueberspringen.")
-        else:
-            # First install: login -> key -> enable (verbatim orchestrate order)
-            _progress("Authenticating at gateway... / Am Gateway authentifizieren...")
-            gateway.login(login_password)
-            result.steps.append("login")
-
-            public_key = _read_public_key(public_key_path)
-            gateway.install_public_key(public_key)
-            result.steps.append("install_credentials")
-
-            gateway.set_ssh_enabled(True)
-            result.steps.append("enable_ssh")
-            _progress("SSH enabled. / SSH freigegeben.")
-
         # Download release + SHA256 gate
         _progress(f"Downloading bundle {lock.tag}... / Bundle {lock.tag} herunterladen...")
         artifact = orchestrate.fetch_and_verify_release(
@@ -349,6 +329,27 @@ def run_deploy(
         result.bundle_version = bundle.version
         result.steps.append("bundle_unpacked")
         _progress(f"Bundle unpacked (version {bundle.version}). / Bundle entpackt.")
+
+        _progress("Checking SSH reachability... / SSH-Erreichbarkeit pruefen...")
+        # Use IdentitiesOnly=yes probe instead of orchestrate.ssh_reachable()
+        # to avoid false negatives when an ssh-agent with multiple keys is running.
+        if _ssh_reachable_with_key(_ssh_probe_runner, gateway_ip, private_key_path):
+            # SSH already reachable (key installed, enable still active)
+            result.steps.append("ssh_already_available")
+            _progress("SSH already available, skipping auth. / SSH bereits erreichbar, Auth ueberspringen.")
+        else:
+            # First install: login -> key -> enable (verbatim orchestrate order)
+            _progress("Authenticating at gateway... / Am Gateway authentifizieren...")
+            gateway.login(login_password)
+            result.steps.append("login")
+
+            public_key = _read_public_key(public_key_path)
+            gateway.install_public_key(public_key)
+            result.steps.append("install_credentials")
+
+            gateway.set_ssh_enabled(True)
+            result.steps.append("enable_ssh")
+            _progress("SSH enabled. / SSH freigegeben.")
 
         # Native deploy via ssh.exe/scp.exe (no bash)
         _progress("Deploying via native ssh/scp... / Native ssh/scp Deploy...")
