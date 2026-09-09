@@ -68,7 +68,7 @@ Diese Bridge wird gegen meine eigene, echte GARDENA-Hardware entwickelt und veri
 - **GARDENA smart Sensoren** — Bodenfeuchte, Temperatur und Batterie. Alle Sensoren im Testset
   werden automatisch erkannt; keine feste Geräteliste im Code.
 - **1 × GARDENA SILENO Mähroboter** — Status und Batterie als read-only Matter-`vacuum`,
-  plus lokales Start/Parken und modellabhängig Pause über die MQTT-`lawn_mower`-Entität des Add-ons.
+  plus lokales Start/Parken, modellabhängig Pause und Zeitstart für 1/3/6 Stunden über MQTT.
 
 Alles andere im Geräte-Modell — **Water Control / Ventile, Irrigation Control, die Druckpumpe,
 die smart-Power-Steckdose und weitere Sensor- und Mäher-Varianten** — ist im Code bereits
