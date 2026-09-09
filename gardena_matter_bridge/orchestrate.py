@@ -80,6 +80,7 @@ INSTALL_SCRIPTS = (
 # Wird NUR ausgefuehrt wenn enable_mqtt=true (opt-in; Matter laeuft weiter, additiv).
 INSTALL_MQTT_SCRIPT = "install_mqtt_publisher.sh"
 MQTT_SERVICE_NAME = "gardena-mqtt-publisher.service"
+TOGGLE_SOCKET_NAME = "gardena-matter-toggle.socket"
 MQTT_SERVICE_STABILITY_DELAY_S = 5
 
 # Name des MQTT-Publisher-Unterverzeichnisses im Release-Bundle.
@@ -1009,6 +1010,46 @@ def ssh_reachable(
         return False
 
 
+def ensure_gateway_toggle_api(
+    runner: CommandRunner,
+    gateway_host: str,
+    private_key_path: str,
+) -> None:
+    """Restore the gateway UI control socket after enabling WebSocket API.
+
+    The vendor `/websocket_api` operation may rebuild its firewall rules.  The
+    custom UDP 5540 and TCP 8099 rules therefore have to be asserted afterwards;
+    otherwise Matter connectivity and all gateway UI controls may disappear
+    even though their data and services still exist.
+    """
+    cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-i", private_key_path,
+        f"root@{gateway_host}",
+        (
+            f"systemctl enable {TOGGLE_SOCKET_NAME} >/dev/null 2>&1 && "
+            f"systemctl start {TOGGLE_SOCKET_NAME} && "
+            "(iptables -C INPUT -p udp --dport 5540 -j ACCEPT 2>/dev/null || "
+            "iptables -I INPUT -p udp --dport 5540 -j ACCEPT) && "
+            "(ip6tables -C INPUT -p udp --dport 5540 -j ACCEPT 2>/dev/null || "
+            "ip6tables -I INPUT -p udp --dport 5540 -j ACCEPT) && "
+            "(iptables -C INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null || "
+            "iptables -I INPUT -p tcp --dport 8099 -j ACCEPT) && "
+            "(ip6tables -C INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null || "
+            "ip6tables -I INPUT -p tcp --dport 8099 -j ACCEPT) && "
+            f"systemctl is-active --quiet {TOGGLE_SOCKET_NAME}"
+        ),
+    ]
+    if runner(cmd) != 0:
+        raise OrchestrationError(
+            "Matter-/Gateway-Steuerzugang auf UDP 5540 und TCP 8099 konnte "
+            "nach Aktivierung der lokalen API nicht wiederhergestellt werden."
+        )
+
+
 def run_full_deploy(
     plan: DeployPlan,
     *,
@@ -1153,8 +1194,14 @@ def run_full_deploy(
             gateway.login(login_password)
             result.steps.append("login_local_control")
         gateway.set_websocket_enabled(True)
+        ensure_gateway_toggle_api(
+            ssh_runner,
+            plan.gateway_host,
+            plan.private_key_path,
+        )
         result.local_control_enabled = True
         result.steps.append("enable_local_control")
+        result.steps.append("restore_toggle_api")
 
     if plan.disable_ssh_after:
         gateway.set_ssh_enabled(False)

@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.1
+- **Fix:** Reassert the gateway control socket plus the Matter UDP 5540 and UI TCP 8099 IPv4/IPv6 firewall rules after enabling the official WebSocket API. This preserves Matter connectivity and restores Matter toggle, MQTT status, MQTT settings and MQTT start/stop.
+
 ## 0.2.0
 - **Native mower control:** The add-on now creates a Home Assistant MQTT `lawn_mower` entity itself. Start, Dock and model-dependent Pause are forwarded locally to the gateway; no separate custom integration is needed.
 - **Safety:** Commands use the official local gateway WebSocket API over an encrypted SSH tunnel, ignore retained MQTT commands and report gateway rejection or timeout in the add-on log.
@@ -65,6 +68,9 @@
 ---
 
 # Änderungsprotokoll (Deutsch)
+
+## 0.2.1
+- **Fix:** Nach Aktivierung der offiziellen WebSocket-API werden Gateway-Steuer-Socket sowie die IPv4/IPv6-Firewallregeln für Matter UDP 5540 und Web-UI TCP 8099 erneut hergestellt. Matter-Verbindung, Matter-Toggle, MQTT-Status, MQTT-Einstellungen und MQTT-Start/Stopp bleiben dadurch erreichbar.
 
 ## 0.2.0
 - **Native Mäher-Steuerung:** Das Add-on erzeugt selbst eine Home-Assistant-MQTT-`lawn_mower`-Entität. Start, Parken und modellabhängig Pause werden lokal an das Gateway weitergegeben; eine separate Custom-Integration ist nicht nötig.

@@ -155,6 +155,36 @@ class LocalControlApiTests(unittest.TestCase):
         self.assertTrue(result.local_control_enabled)
         self.assertIn("login_local_control", result.steps)
         self.assertIn("enable_local_control", result.steps)
+        self.assertIn("restore_toggle_api", result.steps)
+
+    def test_toggle_api_repair_restores_socket_and_both_firewalls(self):
+        calls = []
+
+        web_ui.orch.ensure_gateway_toggle_api(
+            lambda cmd: calls.append(list(cmd)) or 0,
+            "192.0.2.10",
+            "/tmp/private-key",
+        )
+
+        self.assertEqual(len(calls), 1)
+        command = calls[0][-1]
+        self.assertIn("systemctl start gardena-matter-toggle.socket", command)
+        self.assertIn("iptables -I INPUT -p udp --dport 5540", command)
+        self.assertIn("ip6tables -I INPUT -p udp --dport 5540", command)
+        self.assertIn("iptables -I INPUT -p tcp --dport 8099", command)
+        self.assertIn("ip6tables -I INPUT -p tcp --dport 8099", command)
+        self.assertIn("systemctl is-active --quiet", command)
+
+    def test_toggle_api_repair_failure_aborts_deploy(self):
+        with self.assertRaisesRegex(
+            orch.OrchestrationError,
+            "UDP 5540 und TCP 8099",
+        ):
+            orch.ensure_gateway_toggle_api(
+                lambda _cmd: 1,
+                "192.0.2.10",
+                "/tmp/private-key",
+            )
 
 
 class GatewayCompatibilityRegressionTests(unittest.TestCase):

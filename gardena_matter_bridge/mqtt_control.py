@@ -489,6 +489,41 @@ class Controller:
                 time.sleep(0.5)
         raise TimeoutError("SSH tunnel did not become ready")
 
+    def ensure_gateway_toggle_api(self) -> None:
+        """Keep the gateway web UI API reachable after `/websocket_api`."""
+        command = (
+            "systemctl enable gardena-matter-toggle.socket >/dev/null 2>&1 && "
+            "systemctl start gardena-matter-toggle.socket && "
+            "(iptables -C INPUT -p udp --dport 5540 -j ACCEPT 2>/dev/null || "
+            "iptables -I INPUT -p udp --dport 5540 -j ACCEPT) && "
+            "(ip6tables -C INPUT -p udp --dport 5540 -j ACCEPT 2>/dev/null || "
+            "ip6tables -I INPUT -p udp --dport 5540 -j ACCEPT) && "
+            "(iptables -C INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null || "
+            "iptables -I INPUT -p tcp --dport 8099 -j ACCEPT) && "
+            "(ip6tables -C INPUT -p tcp --dport 8099 -j ACCEPT 2>/dev/null || "
+            "ip6tables -I INPUT -p tcp --dport 8099 -j ACCEPT) && "
+            "systemctl is-active --quiet gardena-matter-toggle.socket"
+        )
+        result = subprocess.run(
+            [
+                "ssh",
+                "-T",
+                "-o", "StrictHostKeyChecking=no",
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=5",
+                "-i", self.private_key,
+                f"root@{self.gateway}",
+                command,
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=20,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise ConnectionError("Gateway control API repair failed")
+
     def publish_discovery(self, mqtt: MqttClient, mower: Mower) -> None:
         topic = f"{self.ha_prefix}/lawn_mower/gardena_{mower.key}/config"
         payload = discovery_payload(mower, self.topic_prefix, self.availability_topic)
@@ -517,6 +552,7 @@ class Controller:
             mqtt.publish(self.availability_topic, "online", retain=True)
             self.enable_websocket_api()
             self.start_tunnel()
+            self.ensure_gateway_toggle_api()
             ws = WebSocketClient("127.0.0.1", LOCAL_TUNNEL_PORT, self.gateway_password)
             mowers = discover_mowers(ws)
             if not mowers:
