@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1
+- **Fix:** Correct the retained MQTT mower-status discovery mapping: raw status `8`, observed on a healthy docked SILENO after charging, is now shown as `DOCKED` instead of `ERROR`. The add-on reapplies the correction if the gateway publisher republishes its discovery record.
+
+## 0.3.0
+- **One Home Assistant device:** Native mower control adopts the retained device identifier of the gateway MQTT publisher. Sensors, mower control and timed-start buttons therefore appear under the same device. The former separate controller discovery record is removed automatically.
+- **Timed mowing:** Adds dedicated **Start 1 h**, **Start 3 h** and **Start 6 h** MQTT buttons. Their commands use the model-specific local GARDENA protocol and do not require a custom integration.
+
 ## 0.2.1
 - **Fix:** Reassert the gateway control socket plus the Matter UDP 5540 and UI TCP 8099 IPv4/IPv6 firewall rules after enabling the official WebSocket API. This preserves Matter connectivity and restores Matter toggle, MQTT status, MQTT settings and MQTT start/stop.
 
@@ -68,6 +75,13 @@
 ---
 
 # Änderungsprotokoll (Deutsch)
+
+## 0.3.1
+- **Fix:** Korrigiert das Retained-MQTT-Discovery-Mapping des Mäherstatus: Der an einem gesunden, nach dem Laden angedockten SILENO beobachtete Rohstatus `8` wird nun als `DOCKED` statt `ERROR` angezeigt. Das Add-on wendet die Korrektur erneut an, falls der Gateway-Publisher seinen Discovery-Eintrag neu veröffentlicht.
+
+## 0.3.0
+- **Ein Home-Assistant-Gerät:** Die native Mäher-Steuerung übernimmt die per Retained MQTT Discovery veröffentlichte Gerätekennung des Gateway-Publishers. Sensoren, Mäher-Steuerung und Zeitstart-Buttons erscheinen dadurch gemeinsam in einem Gerät. Der bisherige separate Discovery-Eintrag der Steuerung wird automatisch entfernt.
+- **Zeitgesteuertes Mähen:** Neue MQTT-Buttons **Start 1 h**, **Start 3 h** und **Start 6 h**. Die Befehle verwenden das modellspezifische lokale GARDENA-Protokoll und benötigen keine Custom-Integration.
 
 ## 0.2.1
 - **Fix:** Nach Aktivierung der offiziellen WebSocket-API werden Gateway-Steuer-Socket sowie die IPv4/IPv6-Firewallregeln für Matter UDP 5540 und Web-UI TCP 8099 erneut hergestellt. Matter-Verbindung, Matter-Toggle, MQTT-Status, MQTT-Einstellungen und MQTT-Start/Stopp bleiben dadurch erreichbar.

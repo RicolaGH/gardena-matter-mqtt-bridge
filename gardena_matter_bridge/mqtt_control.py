@@ -39,6 +39,13 @@ START_ACTION_DURATIONS = {
     "start_3h": 3 * 60 * 60,
     "start_6h": 6 * 60 * 60,
 }
+MOWER_STATUS_VALUE_TEMPLATE = (
+    "{% if value|int in [1,2] %}RUNNING"
+    "{% elif value|int == 3 %}CHARGING"
+    "{% elif value|int >= 4 and value|int <= 8 %}DOCKED"
+    "{% elif value|int >= 9 and value|int <= 13 %}ERROR"
+    "{% else %}STOPPED{% endif %}"
+)
 MOWER_MODELS = {
     "488": ("GARDENA smart SILENO pro/max/free", "gen2"),
     "6146": ("GARDENA smart SILENO", "gen1"),
@@ -495,6 +502,29 @@ def publisher_mower_identity(topic: str, payload: str) -> tuple[str, str] | None
     return key, identifier
 
 
+def corrected_mower_status_discovery(topic: str, payload: str) -> str | None:
+    """Return corrected retained discovery JSON, or None if no repair is needed."""
+    if not topic.endswith("/mower_status/config"):
+        return None
+    try:
+        config = json.loads(payload)
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if config.get("value_template") == MOWER_STATUS_VALUE_TEMPLATE:
+        return None
+    config["value_template"] = MOWER_STATUS_VALUE_TEMPLATE
+    return json.dumps(config, separators=(",", ":"))
+
+
+def repair_mower_status_discovery(mqtt: MqttClient, topic: str, payload: str) -> bool:
+    corrected = corrected_mower_status_discovery(topic, payload)
+    if corrected is None:
+        return False
+    mqtt.publish(topic, corrected, retain=True)
+    log("MQTT-Mäherstatus korrigiert: Status 8 wird als DOCKED angezeigt")
+    return True
+
+
 def collect_publisher_mower_identities(
     mqtt: MqttClient,
     *,
@@ -517,6 +547,7 @@ def collect_publisher_mower_identities(
         identity = publisher_mower_identity(topic, payload)
         if identity is not None and identity not in identities:
             identities.append(identity)
+        repair_mower_status_discovery(mqtt, topic, payload)
     return identities
 
 
@@ -710,6 +741,8 @@ class Controller:
                     packet_type, flags, body = mqtt.receive()
                     if packet_type == 3:
                         topic, action, retained = mqtt.parse_publish(flags, body)
+                        if repair_mower_status_discovery(mqtt, topic, action):
+                            continue
                         action = action.strip()
                         mower = by_topic.get(topic)
                         if mower is None or retained:
