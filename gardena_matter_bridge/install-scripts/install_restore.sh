@@ -34,7 +34,9 @@ set -euo pipefail
 # GATEWAY_IP: Positional $1 ODER Env GATEWAY_IP ODER RFC5737-TEST-NET-Platzhalter.
 GATEWAY_IP="${1:-${GATEWAY_IP:-192.0.2.1}}"
 SSH_KEY="${GARDENA_SSH_KEY:-${HOME:-/root}/.ssh/id_ed25519}"
-SSH_OPTS="-i ${SSH_KEY} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${HOME:-/root}/.ssh/known_hosts_gardena -o ConnectTimeout=15"
+SSH_OPTS=(-i "${SSH_KEY}" -o StrictHostKeyChecking=accept-new
+    -o "UserKnownHostsFile=${GARDENA_KNOWN_HOSTS:-/data/ssh/known_hosts_gardena}"
+    -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15)
 GW="root@${GATEWAY_IP}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -57,12 +59,12 @@ log "  RESTORE_SRC  = ${RESTORE_SRC}"
 log "======================================================="
 
 # ── SSH-Test ───────────────────────────────────────────────────────────
-ssh ${SSH_OPTS} "${GW}" 'echo "SSH OK; hostname=$(hostname)"' \
+ssh "${SSH_OPTS[@]}" "${GW}" 'echo "SSH OK; hostname=$(hostname)"' \
     && log "SSH OK" || { log "ERROR: SSH fehlgeschlagen"; exit 1; }
 
 # ── Sicherstellen dass Bridge + Web-UI bereits installiert sind ────────
 log "=== Voraussetzungen pruefen ==="
-ssh ${SSH_OPTS} "${GW}" << 'CHECK_EOF'
+ssh "${SSH_OPTS[@]}" "${GW}" << 'CHECK_EOF'
 OK=1
 [ -f "/usr/local/lib/gardena-matter/chip-bridge-app" ] || { echo "ERROR: Bridge-Binary fehlt -- zuerst install_bridge.sh ausfuehren"; OK=0; }
 [ -f "/usr/local/lib/gardena-matter/runbridge.sh" ]    || { echo "ERROR: runbridge.sh fehlt -- zuerst install_bridge.sh ausfuehren"; OK=0; }
@@ -74,7 +76,7 @@ CHECK_EOF
 
 # ── restore-src/ Verzeichnisstruktur anlegen ───────────────────────────
 log "=== restore-src/ Verzeichnisse anlegen ==="
-ssh ${SSH_OPTS} "${GW}" << MKDIR_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << MKDIR_EOF
 mkdir -p "${RESTORE_SRC}/usr-local-lib"
 mkdir -p "${RESTORE_SRC}/systemd"
 mkdir -p "${RESTORE_SRC}/assets"
@@ -87,7 +89,7 @@ MKDIR_EOF
 # Libs: Symlinks (Libs sind im Paarverbund nicht partiell verlierbar; Symlinks
 # sparen ~7.8 MiB im 25 MiB Overlay).
 log "=== Bridge-Binary + runbridge.sh -> restore-src/usr-local-lib/ (echte Kopien) ==="
-ssh ${SSH_OPTS} "${GW}" << BIN_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << BIN_EOF
 cp -p "${BRIDGE_DIR}/chip-bridge-app" "${RESTORE_SRC}/usr-local-lib/chip-bridge-app"
 chmod 755 "${RESTORE_SRC}/usr-local-lib/chip-bridge-app"
 cp -p "${BRIDGE_DIR}/runbridge.sh"    "${RESTORE_SRC}/usr-local-lib/runbridge.sh"
@@ -97,7 +99,7 @@ echo "Platz-Verbrauch restore-src/usr-local-lib: \$(du -sh ${RESTORE_SRC}/usr-lo
 BIN_EOF
 
 log "=== Libs -> restore-src/usr-local-lib/ (Symlinks, ~0 extra Platz) ==="
-ssh ${SSH_OPTS} "${GW}" << SYM_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << SYM_EOF
 # Lib-Symlinks (nur die echten Dateien, keine duplizierten Varianten)
 mkdir -p "${RESTORE_SRC}/usr-local-lib/lib"
 mkdir -p "${RESTORE_SRC}/usr-local-lib/usr-lib"
@@ -117,7 +119,7 @@ SYM_EOF
 
 # ── systemd-Units in restore-src/ kopieren (echte Kopien, klein) ──────
 log "=== systemd-Units -> restore-src/systemd/ (echte Kopien) ==="
-ssh ${SSH_OPTS} "${GW}" << UNIT_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << UNIT_EOF
 for unit in \
     gardena-matter-bridge.service \
     gardena-matter-toggle.service \
@@ -140,7 +142,7 @@ UNIT_EOF
 
 # ── Web-UI-Dateien in restore-src/ kopieren ───────────────────────────
 log "=== Web-UI -> restore-src/assets/ (echte Kopien, ~70 KB) ==="
-ssh ${SSH_OPTS} "${GW}" << ASSETS_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << ASSETS_EOF
 cp -p "${ETC_DIR}/matter.html"   "${RESTORE_SRC}/assets/matter.html"
 cp -p "${ETC_DIR}/qrcode.min.js" "${RESTORE_SRC}/assets/qrcode.min.js"
 chmod 644 "${RESTORE_SRC}/assets/matter.html"
@@ -151,7 +153,7 @@ ASSETS_EOF
 
 # ── Executables: Symlinks (gardena-toggle, update-matter-status.sh) ───
 log "=== /etc/gardena-matter/ Executables -> restore-src/etc/ (Symlinks) ==="
-ssh ${SSH_OPTS} "${GW}" << ETC_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << ETC_EOF
 mkdir -p "${RESTORE_SRC}/etc"
 ln -sf "${ETC_DIR}/gardena-toggle"          "${RESTORE_SRC}/etc/gardena-toggle"
 ln -sf "${ETC_DIR}/update-matter-status.sh" "${RESTORE_SRC}/etc/update-matter-status.sh"
@@ -160,22 +162,22 @@ ETC_EOF
 
 # ── Restore-Skript hochladen ───────────────────────────────────────────
 log "=== Restore-Skript hochladen ==="
-scp -O ${SSH_OPTS} \
+scp -O "${SSH_OPTS[@]}" \
     "${WEB_UI_SRC}/gardena-matter-restore.sh" \
     "${GW}:${ETC_DIR}/gardena-matter-restore.sh"
-ssh ${SSH_OPTS} "${GW}" "chmod 755 ${ETC_DIR}/gardena-matter-restore.sh"
+ssh "${SSH_OPTS[@]}" "${GW}" "chmod 755 ${ETC_DIR}/gardena-matter-restore.sh"
 log "Restore-Skript: ${ETC_DIR}/gardena-matter-restore.sh"
 
 # ── Neue Restore-Service-Unit hochladen + aktivieren ──────────────────
 log "=== Neuen gardena-matter-restore.service deployen ==="
-scp -O ${SSH_OPTS} \
+scp -O "${SSH_OPTS[@]}" \
     "${WEB_UI_SRC}/gardena-matter-restore.service" \
     "${GW}:${UNIT_DIR}/gardena-matter-restore.service"
-scp -O ${SSH_OPTS} \
+scp -O "${SSH_OPTS[@]}" \
     "${WEB_UI_SRC}/gardena-matter-restore.path" \
     "${GW}:${UNIT_DIR}/gardena-matter-restore.path"
 
-ssh ${SSH_OPTS} "${GW}" << ACTIVATE_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << ACTIVATE_EOF
 # Alten failed-State aufraumen
 systemctl reset-failed gardena-matter-restore.service 2>/dev/null || true
 systemctl reset-failed gardena-matter-restore.path    2>/dev/null || true
@@ -202,7 +204,7 @@ ACTIVATE_EOF
 
 # ── Footprint pruefen ──────────────────────────────────────────────────
 log "=== Footprint-Check ==="
-ssh ${SSH_OPTS} "${GW}" << FOOT_EOF
+ssh "${SSH_OPTS[@]}" "${GW}" << FOOT_EOF
 echo "restore-src Gesamtgroesse (inkl. Symlinks):"
 du -sh "${RESTORE_SRC}/"
 echo ""

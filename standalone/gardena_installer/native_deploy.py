@@ -157,10 +157,13 @@ def _ssh_opts(private_key_path: str) -> List[str]:
     DE: Liefert Pflicht-SSH-Optionsliste. IdentitiesOnly=yes verhindert, dass
         der Gateway zu viele Keys angeboten bekommt.
     """
+    os.makedirs(os.path.join(os.path.expanduser("~"), ".ssh"), mode=0o700, exist_ok=True)
     return [
         "-i", private_key_path,
         "-o", "IdentitiesOnly=yes",
         "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "UserKnownHostsFile=" + os.path.join(os.path.expanduser("~"), ".ssh", "known_hosts_gardena"),
+        "-o", "GlobalKnownHostsFile=/dev/null",
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=15",
     ]

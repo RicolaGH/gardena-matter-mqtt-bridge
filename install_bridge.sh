@@ -39,7 +39,9 @@ BINARY="${1:-${BINARY_PATH:-${BUILD_ROOT}/out/mips-bridge/chip-bridge-app.stripp
 # GATEWAY_IP: Positional $2 ODER Env GATEWAY_IP ODER neutraler Platzhalter.
 GATEWAY_IP="${2:-${GATEWAY_IP:-192.0.2.1}}"
 SSH_KEY="${GARDENA_SSH_KEY:-${HOME:-/root}/.ssh/id_ed25519}"
-SSH_OPTS="-i ${SSH_KEY} -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=${HOME:-/root}/.ssh/known_hosts_gardena -o ConnectTimeout=15"
+SSH_OPTS=(-i "${SSH_KEY}" -o StrictHostKeyChecking=accept-new
+    -o "UserKnownHostsFile=${GARDENA_KNOWN_HOSTS:-/data/ssh/known_hosts_gardena}"
+    -o GlobalKnownHostsFile=/dev/null -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=15)
 LOG="${BUILD_ROOT}/install_bridge.log"
 
 # Ziel-Pfade auf dem Gerät (persistentes Overlay)
@@ -81,7 +83,7 @@ if [ ! -f "${LIBS_TGZ}" ]; then
 fi
 
 # SSH-Test
-ssh ${SSH_OPTS} "${GW}" 'echo "SSH OK; hostname=$(hostname)"' >> "${LOG}" 2>&1 \
+ssh "${SSH_OPTS[@]}" "${GW}" 'echo "SSH OK; hostname=$(hostname)"' >> "${LOG}" 2>&1 \
     && log "SSH zum Gateway OK" \
     || { log "ERROR: SSH fehlgeschlagen"; exit 1; }
 
@@ -92,7 +94,7 @@ log "=== Persistente Installation ins Overlay ==="
 # pgrep -x scheitert auf BusyBox-MIPS, wenn der Prozessname länger als 15 Zeichen ist
 # (trunciert). Fallback: alle chip-bridge-app-Prozesse via /proc/*/exe suchen.
 log "Stoppe ggf. laufende Bridge (alle Instanzen) ..."
-ssh ${SSH_OPTS} "${GW}" << 'STOPEOF'
+ssh "${SSH_OPTS[@]}" "${GW}" << 'STOPEOF'
 # Schritt 1: systemd-Service stoppen (falls schon installiert)
 if systemctl is-active gardena-matter-bridge.service >/dev/null 2>&1; then
     systemctl stop gardena-matter-bridge.service
@@ -123,7 +125,7 @@ STOPEOF
 # jede kuenftige lib-Akkumulation (nicht nur *"*-Dateien). BusyBox/POSIX-sicher (kein
 # df-Logging vor/nach beweist freigewordenen Platz im Deploy-Log.
 log "Generischer lib-Cleanup (rm -rf lib-Dirs vor dem Schreiben, BusyBox-sicher) ..."
-ssh ${SSH_OPTS} "${GW}" << 'CLEANUPEOF'
+ssh "${SSH_OPTS[@]}" "${GW}" << 'CLEANUPEOF'
 echo "df-vorher: $(df -h /usr/local 2>/dev/null | tail -1)"
 rm -rf "/usr/local/lib/gardena-matter/usr/lib" "/usr/local/lib/gardena-matter/lib"
 echo "Cleanup: lib-Dirs entfernt (deployt == ausgeliefert)"
@@ -132,20 +134,20 @@ CLEANUPEOF
 
 # Ziel-Verzeichnis anlegen (nach Cleanup; mkdir -p behandelt leere/fehlende Dirs)
 log "Lege ${INSTALL_DIR} an ..."
-ssh ${SSH_OPTS} "${GW}" "mkdir -p ${INSTALL_DIR}/lib ${INSTALL_DIR}/usr/lib"
+ssh "${SSH_OPTS[@]}" "${GW}" "mkdir -p ${INSTALL_DIR}/lib ${INSTALL_DIR}/usr/lib"
 
 # Binary übertragen
 log "Übertrage Binary (scp -O) ..."
 BINARY_SIZE=$(du -sh "${BINARY}" | cut -f1)
 log "  Binary-Größe: ${BINARY_SIZE}"
-scp -O ${SSH_OPTS} "${BINARY}" "${GW}:${INSTALL_DIR}/chip-bridge-app"
-ssh ${SSH_OPTS} "${GW}" "chmod +x ${INSTALL_DIR}/chip-bridge-app"
+scp -O "${SSH_OPTS[@]}" "${BINARY}" "${GW}:${INSTALL_DIR}/chip-bridge-app"
+ssh "${SSH_OPTS[@]}" "${GW}" "chmod +x ${INSTALL_DIR}/chip-bridge-app"
 log "Binary installiert: ${INSTALL_DIR}/chip-bridge-app"
 
 # Libs übertragen und entpacken
 log "Übertrage + entpacke Libs ..."
-scp -O ${SSH_OPTS} "${LIBS_TGZ}" "${GW}:/tmp/matter_libs_install.tar.gz"
-ssh ${SSH_OPTS} "${GW}" << LIBEOF
+scp -O "${SSH_OPTS[@]}" "${LIBS_TGZ}" "${GW}:/tmp/matter_libs_install.tar.gz"
+ssh "${SSH_OPTS[@]}" "${GW}" << LIBEOF
 cd ${INSTALL_DIR}
 tar xzf /tmp/matter_libs_install.tar.gz
 rm -f /tmp/matter_libs_install.tar.gz
@@ -164,7 +166,7 @@ LIBEOF
 log "Libs installiert: ${INSTALL_DIR}/usr/lib/"
 
 log "KVS-Verzeichnis sicherstellen (NICHT wipen) ..."
-ssh ${SSH_OPTS} "${GW}" << KVSEOF
+ssh "${SSH_OPTS[@]}" "${GW}" << KVSEOF
 mkdir -p ${KVS_DIR}
 if [ -f "${KVS_DIR}/chip_kvs" ]; then
     echo "KVS existiert bereits: \$(ls -lh ${KVS_DIR}/chip_kvs)"
@@ -176,7 +178,7 @@ KVSEOF
 
 # Launcher-Skript schreiben (generate-if-absent + Verifier-Uebergabe)
 log "Schreibe Launcher ${LAUNCHER} ..."
-ssh ${SSH_OPTS} "${GW}" "cat > ${LAUNCHER}" << LAUNCHEREOF
+ssh "${SSH_OPTS[@]}" "${GW}" "cat > ${LAUNCHER}" << LAUNCHEREOF
 #!/bin/sh
 # Installiert in ${INSTALL_DIR} (persistentes Overlay, ueberlebt Reboot)
 #
@@ -273,12 +275,12 @@ exec ${INSTALL_DIR}/chip-bridge-app \\
     --spake2p-salt         "\${GARDENA_SPAKE2P_SALT}" \\
     --spake2p-iterations   "\${GARDENA_SPAKE2P_ITERATIONS}"
 LAUNCHEREOF
-ssh ${SSH_OPTS} "${GW}" "chmod +x ${LAUNCHER}"
+ssh "${SSH_OPTS[@]}" "${GW}" "chmod +x ${LAUNCHER}"
 log "Launcher installiert: ${LAUNCHER}"
 
 # Footprint prüfen
 log "=== Footprint-Check ==="
-ssh ${SSH_OPTS} "${GW}" << FOOTEOF
+ssh "${SSH_OPTS[@]}" "${GW}" << FOOTEOF
 echo "Installierte Dateien in ${INSTALL_DIR}:"
 du -sh ${INSTALL_DIR}
 echo ""
@@ -293,7 +295,7 @@ FOOTEOF
 log "=== systemd-Unit installieren ==="
 
 # ExecStartPre setzt Firewall-Regel (idempotent: -C vor -I)
-ssh ${SSH_OPTS} "${GW}" "cat > ${UNIT_FILE}" << UNITEOF
+ssh "${SSH_OPTS[@]}" "${GW}" "cat > ${UNIT_FILE}" << UNITEOF
 [Unit]
 Description=Gardena Matter Bridge
 Wants=lemonbeatd.service network-online.target
@@ -318,7 +320,7 @@ log "Unit-Datei geschrieben: ${UNIT_FILE}"
 
 # systemctl daemon-reload + enable
 log "systemctl daemon-reload + enable ..."
-ssh ${SSH_OPTS} "${GW}" << ENABLEEOF
+ssh "${SSH_OPTS[@]}" "${GW}" << ENABLEEOF
 systemctl daemon-reload
 systemctl enable gardena-matter-bridge.service
 echo "systemctl enable: OK"
@@ -332,7 +334,7 @@ ENABLEEOF
 log "Unit enabled"
 
 log "=== T2+gardena-matter-bridge.service starten ==="
-ssh ${SSH_OPTS} "${GW}" << STARTEOF
+ssh "${SSH_OPTS[@]}" "${GW}" << STARTEOF
 systemctl start gardena-matter-bridge.service
 sleep 20
 echo "=== systemctl status ==="

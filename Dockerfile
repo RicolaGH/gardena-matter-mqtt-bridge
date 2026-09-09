@@ -33,6 +33,8 @@ RUN apk add --no-cache \
 # Add-on-Dateien
 COPY run.sh /run.sh
 COPY orchestrate.py /opt/gardena/orchestrate.py
+COPY security.py /opt/gardena/security.py
+COPY supervise_control.py /opt/gardena/supervise_control.py
 COPY mqtt_control.py /opt/gardena/mqtt_control.py
 COPY status.py /opt/gardena/status.py
 COPY web_ui.py /opt/gardena/web_ui.py

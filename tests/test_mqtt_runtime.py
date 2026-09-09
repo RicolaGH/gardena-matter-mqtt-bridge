@@ -79,16 +79,14 @@ class MqttDeploymentTests(unittest.TestCase):
 
     def test_install_receives_all_mqtt_values_and_checks_service(self):
         calls = []
-        scp_wrapper_contents = []
+        install_inputs = []
 
         def runner(cmd):
             calls.append(list(cmd))
-            if cmd[0] == "env":
-                path_entry = next(value for value in cmd if value.startswith("PATH="))
-                wrapper_dir = path_entry[len("PATH="):].split(":", 1)[0]
-                scp_wrapper_contents.append(
-                    (Path(wrapper_dir) / "scp").read_text(encoding="utf-8")
-                )
+            if cmd[0] == "bash":
+                install_inputs.append(cmd.input.decode())
+                self.assertNotIn("secret-password", repr(cmd))
+                self.assertEqual(cmd.env["GATEWAY_IP"], "192.0.2.10")
             return 0
 
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -116,12 +114,12 @@ class MqttDeploymentTests(unittest.TestCase):
         self.assertIn("systemctl stop gardena-mqtt-publisher.service", stop_cmd[-1])
         self.assertIn("/proc/[0-9]*/exe", stop_cmd[-1])
         install_cmd = calls[1]
-        self.assertIn("MQTT_BROKER_HOST=mqtt.internal", install_cmd)
-        self.assertIn("MQTT_BROKER_PORT=2883", install_cmd)
-        self.assertIn("MQTT_TOPIC_PREFIX=garden", install_cmd)
-        self.assertIn("MQTT_HA_PREFIX=ha", install_cmd)
-        self.assertEqual(len(scp_wrapper_contents), 1)
-        self.assertIn(' -O "$@"', scp_wrapper_contents[0])
+        self.assertEqual(install_cmd[0], "bash")
+        self.assertIn('MQTT_BROKER_HOST="mqtt.internal"', install_inputs[0])
+        self.assertIn('MQTT_BROKER_PORT="2883"', install_inputs[0])
+        self.assertIn('MQTT_TOPIC_PREFIX="garden"', install_inputs[0])
+        self.assertIn('MQTT_HA_PREFIX="ha"', install_inputs[0])
+        self.assertIn('MQTT_BROKER_PASS="secret-password"', install_inputs[0])
         self.assertEqual(calls[2][0], "ssh")
         self.assertIn("systemctl start gardena-mqtt-publisher.service", calls[2][-1])
         self.assertEqual(calls[3][0], "ssh")

@@ -50,6 +50,8 @@ import json
 import os
 import shutil
 import ssl
+from security import Command, ssh_options, validate_host
+
 import subprocess
 import tarfile
 import tempfile
@@ -436,6 +438,7 @@ def fetch_and_verify_release(
     expected_sha256: str,
     sig_verify: Optional[SignatureVerifier] = None,
     signing_public_key_path: str = "",
+    download_dir: str = "/data/release",
 ) -> ReleaseArtifact:
     """Zieht das Release (§2.2 b) und prueft die Integritaet VOR dem Deploy.
 
@@ -447,7 +450,7 @@ def fetch_and_verify_release(
     """
     if not repo or "/" not in repo:
         raise OrchestrationError("GitHub-Repo (owner/name) fehlt/ungueltig.")
-    artifact = downloader(repo, tag, "/data/release")
+    artifact = downloader(repo, tag, download_dir)
     actual = compute_sha256(read_bytes, artifact.path)
     # PRIMAERES, hartes Gate: SHA256-Hash-Pinning (Abbruch bei Mismatch).
     verify_build_hash(actual, expected_sha256)
@@ -499,6 +502,8 @@ def unpack_bundle(
     """
     if extractor is None:
         extractor = _default_tar_extract
+    os.makedirs(dest_dir, exist_ok=True)
+    dest_dir = tempfile.mkdtemp(prefix="bundle-", dir=dest_dir)
     extractor(artifact_path, dest_dir)
 
     binary_path = os.path.join(dest_dir, BUNDLE_BINARY_NAME)
@@ -561,8 +566,8 @@ def _default_tar_extract(archive_path: str, dest_dir: str) -> None:
         # Python 3.12+: data_filter wehrt Pfad-Traversal/absolute Pfade ab.
         try:
             tar.extractall(dest_dir, filter="data")  # type: ignore[call-arg]
-        except TypeError:  # pragma: no cover - aeltere Python ohne filter-Kwarg
-            tar.extractall(dest_dir)  # noqa: S202
+        except TypeError as exc:
+            raise OrchestrationError("Python with safe tar extraction is required.") from exc
 
 
 def _default_read_text(path: str) -> str:
@@ -728,11 +733,22 @@ def validate_mqtt_config(mqtt_config: MqttConfig) -> None:
     """Validiert aktivierte MQTT-Konfiguration ohne Gateway-Fallback."""
     if not mqtt_config.enable:
         return
+    for value in (mqtt_config.broker_host, mqtt_config.broker_user,
+                  mqtt_config.broker_password, mqtt_config.topic_prefix, mqtt_config.ha_prefix):
+        if not isinstance(value, str) or len(value.encode("utf-8")) > 4096 or any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise OrchestrationError("MQTT configuration contains invalid characters or is too long.")
+    for prefix in (mqtt_config.topic_prefix, mqtt_config.ha_prefix):
+        if not prefix or any(c in prefix for c in "#+") or prefix.startswith("/") or prefix.endswith("/"):
+            raise OrchestrationError("Invalid MQTT topic prefix.")
     if not mqtt_config.broker_host.strip():
         raise OrchestrationError(
             "enable_mqtt=true, aber mqtt_broker_host fehlt. Bitte die IP-Adresse "
             "oder den Hostnamen des MQTT-Brokers in den Add-on-Optionen eintragen."
         )
+    try:
+        validate_host(mqtt_config.broker_host)
+    except ValueError as exc:
+        raise OrchestrationError("Invalid MQTT broker host.") from exc
     if not 1 <= mqtt_config.broker_port <= 65535:
         raise OrchestrationError(
             "mqtt_broker_port muss zwischen 1 und 65535 liegen."
@@ -793,12 +809,15 @@ def deploy_mqtt_publisher_if_enabled(
         )
 
     # install_mqtt_publisher.sh via SSH aufrufen.
-    # MQTT_BROKER_PASSWORD wird als ENV-Variable durchgereicht — NIE als Shell-Argument
-    # (Shell-History-Schutz). Das Skript schreibt mqtt.env auf dem Gateway.
+    # Configuration is delivered on stdin, never interpolated into shell code.
+    # Never execute the unsafe installer shipped in the pinned upstream bundle.
     script_path = os.path.join(scripts_dir, INSTALL_MQTT_SCRIPT)
     if not os.path.isfile(script_path):
-        # Fallback: Skript aus dem Bundle-Verzeichnis
-        script_path = os.path.join(mqtt_publisher_dir, INSTALL_MQTT_SCRIPT)
+        script_path = os.path.join(os.path.dirname(__file__), "install-scripts", INSTALL_MQTT_SCRIPT)
+    if not os.path.isfile(script_path):
+        script_path = os.path.join(os.path.dirname(__file__), INSTALL_MQTT_SCRIPT)
+    if not os.path.isfile(script_path):
+        raise OrchestrationError("Hardened MQTT installer is missing.")
 
     # Re-Deploy-sicher: Ein laufendes Executable kann auf dem Gateway-Overlay
     # nicht direkt ersetzt werden (ETXTBSY / "Text file busy"). Erst den
@@ -807,7 +826,7 @@ def deploy_mqtt_publisher_if_enabled(
     # weil BusyBox lange Prozessnamen auf 15 Zeichen kuerzt.
     stop_cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
+        *ssh_options(),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", private_key_path,
@@ -834,36 +853,27 @@ def deploy_mqtt_publisher_if_enabled(
             "werden. Deploy abgebrochen; Matter und KVS bleiben unveraendert."
         )
 
-    # OpenSSH >= 9 nutzt fuer scp standardmaessig SFTP. Das Gardena-Gateway
-    # stellt jedoch keinen /usr/libexec/sftp-server bereit und akzeptiert nur
-    # das klassische SCP-Protokoll. Ein temporaerer PATH-Wrapper erzwingt -O
-    # fuer alle scp-Aufrufe des signierten Bundle-Installers, ohne das Bundle
-    # selbst zu veraendern.
-    real_scp = shutil.which("scp") or "/usr/bin/scp"
-    with tempfile.TemporaryDirectory(prefix="gardena-scp-") as wrapper_dir:
-        scp_wrapper = os.path.join(wrapper_dir, "scp")
-        with open(scp_wrapper, "w", encoding="utf-8") as handle:
-            handle.write(f'#!/bin/sh\nexec "{real_scp}" -O "$@"\n')
-        os.chmod(scp_wrapper, 0o700)
-
-        cmd = [
-            "env",
-            "HOME=/root",
-            f"PATH={wrapper_dir}:{os.environ.get('PATH', '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin')}",
-            f"GATEWAY_IP={gateway_host}",
-            f"GARDENA_SSH_KEY={private_key_path}",
-            f"MQTT_BINARY={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher')}",
-            f"MQTT_SERVICE={os.path.join(mqtt_publisher_dir, 'gardena-mqtt-publisher.service')}",
-            f"MQTT_BROKER_HOST={mqtt_config.broker_host}",
-            f"MQTT_BROKER_PORT={mqtt_config.broker_port}",
-            f"MQTT_BROKER_USER={mqtt_config.broker_user}",
-            f"MQTT_BROKER_PASS={mqtt_config.broker_password}",  # Secret via ENV, nie als Arg
-            f"MQTT_TOPIC_PREFIX={mqtt_config.topic_prefix}",
-            f"MQTT_HA_PREFIX={mqtt_config.ha_prefix}",
-            "bash",
-            script_path,
-        ]
-        rc = runner(cmd)
+    values = {
+        "MQTT_BROKER_HOST": mqtt_config.broker_host,
+        "MQTT_BROKER_PORT": str(mqtt_config.broker_port),
+        "MQTT_BROKER_USER": mqtt_config.broker_user,
+        "MQTT_BROKER_PASS": mqtt_config.broker_password,
+        "MQTT_TOPIC_PREFIX": mqtt_config.topic_prefix,
+        "MQTT_HA_PREFIX": mqtt_config.ha_prefix,
+    }
+    def env_quote(value):
+        return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    config_bytes = ("\n".join(k + "=" + env_quote(v) for k, v in values.items()) + "\n").encode()
+    env = {k: v for k, v in os.environ.items() if k not in {
+        "GARDENA_MQTT_BROKER_PASSWORD", "GARDENA_DEVICE_ID", "GARDENA_GITHUB_TOKEN", "SUPERVISOR_TOKEN"
+    }}
+    env.update({
+        "GATEWAY_IP": gateway_host,
+        "GARDENA_SSH_KEY": private_key_path,
+        "MQTT_BINARY": os.path.join(mqtt_publisher_dir, "gardena-mqtt-publisher"),
+        "MQTT_SERVICE": os.path.join(mqtt_publisher_dir, "gardena-mqtt-publisher.service"),
+    })
+    rc = runner(Command(["bash", script_path], input=config_bytes, env=env))
     if rc != 0:
         raise OrchestrationError(
             f"MQTT-Publisher-Install-Skript fehlgeschlagen (Exit {rc}). "
@@ -875,7 +885,7 @@ def deploy_mqtt_publisher_if_enabled(
     # ohne Autostart; deshalb starten wir sie hier explizit neu.
     start_cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
+        *ssh_options(),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", private_key_path,
@@ -893,7 +903,7 @@ def deploy_mqtt_publisher_if_enabled(
     # wenigen Sekunden wegen einer ungueltigen Laufzeitkonfiguration sterben.
     check_cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
+        *ssh_options(),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", private_key_path,
@@ -997,7 +1007,7 @@ def ssh_reachable(
     try:
         cmd = [
             "ssh",
-            "-o", "StrictHostKeyChecking=no",
+            *ssh_options(),
             "-o", "BatchMode=yes",
             "-o", "ConnectTimeout=5",
             "-i", private_key_path,
@@ -1024,7 +1034,7 @@ def ensure_gateway_toggle_api(
     """
     cmd = [
         "ssh",
-        "-o", "StrictHostKeyChecking=no",
+        *ssh_options(),
         "-o", "BatchMode=yes",
         "-o", "ConnectTimeout=5",
         "-i", private_key_path,
@@ -1060,38 +1070,22 @@ def run_full_deploy(
     read_bytes: Callable[[str], bytes],
     ssh_runner: Callable[[Sequence[str]], int],
     sig_verify: Optional[SignatureVerifier] = None,
-    unpack_dir: str = "/data/release",
+    unpack_dir: Optional[str] = None,
     extractor: Optional[Callable[[str, str], None]] = None,
     read_text: Optional[Callable[[str], str]] = None,
     addon_version: str = "",
 ) -> DeployResult:
-    """Fuehrt den kompletten Flow in der vorgegebenen Reihenfolge aus.
+    """Verify in a private workspace before gateway mutations; clean up on errors.
 
-    Normalfall: login -> install_credentials -> enable -> (release verify) -> deploy
-                -> optional disable.
-
-    SSH-Probe: VOR dem Key-Schreiben wird SSH am Gateway getestet.
-    Ist SSH bereits erreichbar (rc==0), werden install_public_key + set_ssh_enabled
-    uebersprungen (Schritt 'ssh_already_available') und direkt mit release/deploy
-    fortgefahren. Ist SSH NICHT erreichbar, laeuft der bisherige Pfad unveraendert
-    (login -> install_credentials -> enable); deren Fehler bleiben hart (kein
-    Maskieren der Erst-Installation).
-
-    WICHTIG: Das Release wird VOR der eigentlichen Deploy-Ausfuehrung gezogen +
-    verifiziert; aber NACH der SSH-Freigabe ist egal — die Reihenfolge
-    login/credentials/enable/deploy ist bindend (wird per Unit-Test gesichert).
-
-    Der gateway_host wird IMMER explizit aus der Add-on-Config
-    durchgereicht — KEIN Hardcode-Fallback. Fehlt er, bricht der Flow hart ab,
-    statt still auf irgendeine Default-IP zu zielen.
-
-    Integritaet = SHA256-Hash-Pinning (hartes Gate). Eine echte
-    Signatur ist optional (sig_verify), ersetzt das Hash-Gate NICHT.
-
-    Es gibt nur EIN Credential — `device_id`. Das Login-Passwort
-    wird daraus abgeleitet (`device_id[:8]`). Fehlt `device_id` (ODER `gateway_host`),
-    bricht der Flow HART ab, bevor irgendein Gateway-Aufruf laeuft.
+    Existing SSH access is preserved. If this deployment enables SSH and the
+    configured policy requests disabling it afterwards, that policy is also
+    applied when a subsequent installation step fails. We cannot infer the
+    previous server enable-state from a failed reachability probe.
     """
+    try:
+        validate_host(plan.gateway_host)
+    except ValueError as exc:
+        raise OrchestrationError("Invalid gateway_host.") from exc
     if not plan.gateway_host:
         raise OrchestrationError(
             "gateway_host fehlt — bitte in den Add-on-Optionen setzen "
@@ -1106,106 +1100,129 @@ def run_full_deploy(
     # (derive_login_password wirft), bevor ein Gateway-Aufruf erfolgt.
     login_password = derive_login_password(device_id)
 
+    if plan.enable_local_control and plan.disable_ssh_after:
+        raise OrchestrationError("Local control requires SSH to remain enabled.")
+
     result = DeployResult()
 
-    # SSH-Probe VOR dem Key-Schreiben.
-    # Ist SSH schon erreichbar (letzter Deploy hat Key + Enable hinterlassen,
-    # disable_ssh_after_deploy=false), koennen install_public_key + set_ssh_enabled
-    # uebersprungen werden — sie wuerden bei vollem Gateway-Flash mit HTTP 500
-    # scheitern und den Deploy abbrechen, BEVOR install_bridge.sh (Selbstheilung)
-    # je laeuft (Henne-Ei). Login dient nur dem Config-Interface fuer die
-    # SSH-Setup-Endpunkte -> wird im Skip-Fall ebenfalls uebersprungen.
-    if ssh_reachable(ssh_runner, plan.gateway_host, plan.private_key_path):
-        # SSH bereits aktiv + Key bereits installiert: Setup ueberspringen.
-        result.steps.append("ssh_already_available")
-    else:
-        # SSH nicht erreichbar: normaler Pfad — Erst-Installation oder neues Setup.
-        # Fehler von login/install_public_key/set_ssh_enabled bleiben HART
-        # (kein Maskieren eines echten Setup-Fehlers).
-        gateway.login(login_password)
-        result.steps.append("login")
-
-        public_key = read_public_key(plan.public_key_path)
-        gateway.install_public_key(public_key)
-        result.steps.append("install_credentials")
-
-        gateway.set_ssh_enabled(True)
-        result.steps.append("enable_ssh")
-
-    artifact = fetch_and_verify_release(
-        downloader,
-        read_bytes,
-        repo=plan.repo,
-        tag=plan.tag,
-        expected_sha256=plan.expected_sha256,
-        sig_verify=sig_verify,
-        signing_public_key_path=plan.signing_public_key_path,
-    )
-    result.steps.append("release_verified")
-    result.artifact_sha256 = artifact.sha256
-    result.signature_verified = artifact.signature_verified
-
-    # Bundle ERST NACH bestandenem Hash-Gate entpacken (kein Entpacken
-    # un-verifizierter Bytes), dann die entpackten Binary/Libs an den Deploy geben.
-    bundle = unpack_bundle(
-        artifact.path,
-        unpack_dir,
-        extractor=extractor,
-        read_text=read_text,
-    )
-    result.bundle_version = bundle.version
-    result.steps.append("bundle_unpacked")
-
-    # Add-on-Version fuer Footer-Platzhalter __ADDON_VERSION__.
-    # Bevorzugt: uebergebener addon_version-Parameter; Fallback: load_addon_version().
-    effective_addon_version = addon_version or load_addon_version()
-
-    result.executed_scripts = deploy_via_ssh(
-        ssh_runner,
-        host=plan.gateway_host,
-        private_key_path=plan.private_key_path,
-        binary_path=bundle.binary_path,
-        libs_tgz_path=bundle.libs_tgz_path,
-        web_ui_dir=bundle.web_ui_dir,
-        scripts=plan.scripts,
-        addon_version=effective_addon_version,
-    )
-    result.steps.append("deploy")
-
-    # MQTT-Publisher additiv deployen (nach dem Matter-Deploy, opt-in).
-    # Additiv-Garantie: dieser Block beruehrt NICHT Matter/Bridge/KVS/cloudadapter.
-    # Broker-Passwort wird via ENV an das Install-Skript weitergegeben (nie als Arg).
-    if plan.mqtt_config is not None:
-        result.mqtt_deployed = deploy_mqtt_publisher_if_enabled(
-            ssh_runner,
-            mqtt_config=plan.mqtt_config,
-            gateway_host=plan.gateway_host,
-            private_key_path=plan.private_key_path,
-            mqtt_publisher_dir=bundle.mqtt_publisher_dir,
+    if unpack_dir is not None:
+        os.makedirs(unpack_dir, mode=0o700, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="gardena-deploy-", dir=unpack_dir) as workspace:
+        artifact = fetch_and_verify_release(
+            downloader,
+            read_bytes,
+            repo=plan.repo,
+            tag=plan.tag,
+            expected_sha256=plan.expected_sha256,
+            sig_verify=sig_verify,
+            signing_public_key_path=plan.signing_public_key_path,
+            download_dir=workspace,
         )
-        if result.mqtt_deployed:
-            result.steps.append("mqtt_deploy")
+        result.steps.append("release_verified")
+        result.artifact_sha256 = artifact.sha256
+        result.signature_verified = artifact.signature_verified
 
-    # Offizielle lokale Steuer-API additiv aktivieren. Im SSH-Skip-Fall gibt es
-    # noch keine HTTPS-Session; dann einmal explizit anmelden. Das Passwort wird
-    # nur an /login gesendet und weder geloggt noch im Ergebnis gespeichert.
-    if plan.enable_local_control:
-        if not gateway.session:
-            gateway.login(login_password)
-            result.steps.append("login_local_control")
-        gateway.set_websocket_enabled(True)
-        ensure_gateway_toggle_api(
-            ssh_runner,
-            plan.gateway_host,
-            plan.private_key_path,
+        # Bundle ERST NACH bestandenem Hash-Gate entpacken (kein Entpacken
+        # un-verifizierter Bytes), dann die entpackten Binary/Libs an den Deploy geben.
+        bundle = unpack_bundle(
+            artifact.path,
+            workspace,
+            extractor=extractor,
+            read_text=read_text,
         )
-        result.local_control_enabled = True
-        result.steps.append("enable_local_control")
-        result.steps.append("restore_toggle_api")
+        result.bundle_version = bundle.version
+        result.steps.append("bundle_unpacked")
 
-    if plan.disable_ssh_after:
-        gateway.set_ssh_enabled(False)
-        result.steps.append("disable_ssh")
+        ssh_enabled_here = False
+        try:
+            # SSH-Probe VOR dem Key-Schreiben.
+            # Ist SSH schon erreichbar (letzter Deploy hat Key + Enable hinterlassen,
+            # disable_ssh_after_deploy=false), koennen install_public_key + set_ssh_enabled
+            # uebersprungen werden — sie wuerden bei vollem Gateway-Flash mit HTTP 500
+            # scheitern und den Deploy abbrechen, BEVOR install_bridge.sh (Selbstheilung)
+            # je laeuft (Henne-Ei). Login dient nur dem Config-Interface fuer die
+            # SSH-Setup-Endpunkte -> wird im Skip-Fall ebenfalls uebersprungen.
+            if ssh_reachable(ssh_runner, plan.gateway_host, plan.private_key_path):
+                # SSH bereits aktiv + Key bereits installiert: Setup ueberspringen.
+                result.steps.append("ssh_already_available")
+            else:
+                # SSH nicht erreichbar: normaler Pfad — Erst-Installation oder neues Setup.
+                # Fehler von login/install_public_key/set_ssh_enabled bleiben HART
+                # (kein Maskieren eines echten Setup-Fehlers).
+                gateway.login(login_password)
+                result.steps.append("login")
+
+                public_key = read_public_key(plan.public_key_path)
+                gateway.install_public_key(public_key)
+                result.steps.append("install_credentials")
+
+                ssh_enabled_here = True
+                gateway.set_ssh_enabled(True)
+                result.steps.append("enable_ssh")
+
+            # Add-on-Version fuer Footer-Platzhalter __ADDON_VERSION__.
+            # Bevorzugt: uebergebener addon_version-Parameter; Fallback: load_addon_version().
+            effective_addon_version = addon_version or load_addon_version()
+
+            result.executed_scripts = deploy_via_ssh(
+                ssh_runner,
+                host=plan.gateway_host,
+                private_key_path=plan.private_key_path,
+                binary_path=bundle.binary_path,
+                libs_tgz_path=bundle.libs_tgz_path,
+                web_ui_dir=bundle.web_ui_dir,
+                scripts=plan.scripts,
+                addon_version=effective_addon_version,
+            )
+            result.steps.append("deploy")
+
+            # MQTT-Publisher additiv deployen (nach dem Matter-Deploy, opt-in).
+            # Additiv-Garantie: dieser Block beruehrt NICHT Matter/Bridge/KVS/cloudadapter.
+            # Broker-Passwort wird via ENV an das Install-Skript weitergegeben (nie als Arg).
+            if plan.mqtt_config is not None:
+                result.mqtt_deployed = deploy_mqtt_publisher_if_enabled(
+                    ssh_runner,
+                    mqtt_config=plan.mqtt_config,
+                    gateway_host=plan.gateway_host,
+                    private_key_path=plan.private_key_path,
+                    mqtt_publisher_dir=bundle.mqtt_publisher_dir,
+                )
+                if result.mqtt_deployed:
+                    result.steps.append("mqtt_deploy")
+
+            # Offizielle lokale Steuer-API additiv aktivieren. Im SSH-Skip-Fall gibt es
+            # noch keine HTTPS-Session; dann einmal explizit anmelden. Das Passwort wird
+            # nur an /login gesendet und weder geloggt noch im Ergebnis gespeichert.
+            if plan.enable_local_control:
+                if not gateway.session:
+                    gateway.login(login_password)
+                    result.steps.append("login_local_control")
+                gateway.set_websocket_enabled(True)
+                ensure_gateway_toggle_api(
+                    ssh_runner,
+                    plan.gateway_host,
+                    plan.private_key_path,
+                )
+                result.local_control_enabled = True
+                result.steps.append("enable_local_control")
+                result.steps.append("restore_toggle_api")
+
+            if plan.disable_ssh_after:
+                if not gateway.session:
+                    gateway.login(login_password)
+                gateway.set_ssh_enabled(False)
+                result.steps.append("disable_ssh")
+        except Exception as exc:
+            if ssh_enabled_here and plan.disable_ssh_after:
+                try:
+                    if not gateway.session:
+                        gateway.login(login_password)
+                    gateway.set_ssh_enabled(False)
+                except Exception:
+                    raise OrchestrationError(
+                        "Deploy failed; disabling SSH also failed. Check gateway SSH state."
+                    ) from exc
+            raise
 
     return result
 
@@ -1279,15 +1296,14 @@ def real_subprocess_runner(
 ) -> int:
     """REALER Runner fuer die container-lokalen Install-Skripte.
 
-    Fuehrt EINE Kommandozeile (env ... bash <script>) aus und gibt den Exit-Code
-    zurueck. Das Kommando enthaelt KEIN Secret (nur GATEWAY_IP/Key-PFAD/Bundle-
-    Pfade) -> es darf geloggt werden; wir loggen es bewusst NICHT mit Wert hier,
-    um Pfad-Rauschen zu vermeiden. ssh/scp innerhalb der Skripte nutzen den
-    Add-on-PRIVATE-Key (Pfad), nicht das Passwort.
+    Executes argv plus optional private stdin/environment from Command.
+    Never logs arguments, environment, stdin or raw subprocess exceptions.
     """
     try:
         proc = subprocess.run(  # noqa: S603
             list(cmd),
+            input=getattr(cmd, "input", None),
+            env=getattr(cmd, "env", None),
             timeout=timeout,
             check=False,
         )
