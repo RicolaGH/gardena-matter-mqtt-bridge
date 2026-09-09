@@ -44,3 +44,6 @@ configuration:
   mqtt_ha_prefix:
     name: "Home Assistant discovery prefix"
     description: "Prefix used for MQTT discovery in Home Assistant (default: homeassistant)."
+  enable_local_control:
+    name: "Enable local mower control"
+    description: "Enables the official local GARDENA WebSocket API. The HACS integration 'GARDENA smart local (preview)' can then expose the mower as a lawn_mower entity with Start, Dock and, depending on the model, Pause. Matter and MQTT remain unchanged."

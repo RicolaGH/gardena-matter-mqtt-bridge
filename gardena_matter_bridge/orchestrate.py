@@ -64,6 +64,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 LOGIN_PATH = "/login"
 SSH_CREDENTIALS_PATH = "/ssh_access_credentials"
 SSH_ENABLE_PATH = "/ssh_access_enable"
+WEBSOCKET_API_PATH = "/websocket_api"
 
 # SshCredentials-Feldname: defensiv alle Kandidaten senden.
 SSH_PUBKEY_FIELD_CANDIDATES = ("key", "public_key", "ssh_public_key")
@@ -260,6 +261,26 @@ class GatewayClient:
         if resp.status not in (200, 204):
             raise OrchestrationError(
                 f"SSH-{'Freigabe' if enable else 'Sperre'} fehlgeschlagen "
+                f"(HTTP {resp.status})."
+            )
+
+    def set_websocket_enabled(self, enable: bool) -> None:
+        """Aktiviert die offizielle lokale GARDENA-WebSocket-API.
+
+        Die API ist der vom Gateway-Hersteller vorgesehene lokale Schreibweg
+        fuer Home-Assistant-Integrationen. Sie laeuft getrennt von Matter und
+        vom MQTT-Publisher und beruehrt deren Zustand nicht.
+        """
+        resp = self.http(
+            method="PUT",
+            url=self._url(WEBSOCKET_API_PATH),
+            headers=self._auth_headers(),
+            json_body={"enable": bool(enable)},
+        )
+        if resp.status not in (200, 204):
+            raise OrchestrationError(
+                "Lokale GARDENA-Steuerung konnte nicht "
+                f"{'aktiviert' if enable else 'deaktiviert'} werden "
                 f"(HTTP {resp.status})."
             )
 
@@ -854,6 +875,10 @@ class DeployPlan:
     # MQTT-Konfiguration (additiv, optional).
     # None = MQTT-Deploy deaktiviert (kein enable_mqtt in Optionen).
     mqtt_config: Optional[MqttConfig] = None
+    # Aktiviert die offizielle lokale WebSocket-API auf dem Gateway. Diese wird
+    # von der HA-Integration "GARDENA smart local (preview)" fuer echte
+    # lawn_mower-Steuerbefehle (Start/Dock/Pause) verwendet.
+    enable_local_control: bool = False
 
 
 @dataclass
@@ -868,6 +893,7 @@ class DeployResult:
     bundle_version: str = ""
     # ob der MQTT-Publisher additiv deployt wurde.
     mqtt_deployed: bool = False
+    local_control_enabled: bool = False
 
 
 def load_addon_version() -> str:
@@ -1065,6 +1091,17 @@ def run_full_deploy(
         )
         if result.mqtt_deployed:
             result.steps.append("mqtt_deploy")
+
+    # Offizielle lokale Steuer-API additiv aktivieren. Im SSH-Skip-Fall gibt es
+    # noch keine HTTPS-Session; dann einmal explizit anmelden. Das Passwort wird
+    # nur an /login gesendet und weder geloggt noch im Ergebnis gespeichert.
+    if plan.enable_local_control:
+        if not gateway.session:
+            gateway.login(login_password)
+            result.steps.append("login_local_control")
+        gateway.set_websocket_enabled(True)
+        result.local_control_enabled = True
+        result.steps.append("enable_local_control")
 
     if plan.disable_ssh_after:
         gateway.set_ssh_enabled(False)

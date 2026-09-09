@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.16
+- **Feature:** An opt-in add-on setting enables the gateway's official local WebSocket API. Together with the HACS integration **GARDENA smart local (preview)** this adds a native Home Assistant lawn-mower entity with Start, Dock and model-dependent Pause controls, without changing Matter, MQTT or the pairing KVS.
+- **Fix:** The IPv6 wait loop now uses a BusyBox-compatible first-line command, preventing the launcher from repeatedly failing on `head -1`.
+- **Fix:** The add-on version lookup no longer fails with an unbound variable when `SUPERVISOR_TOKEN` is unavailable.
+
 ## 0.1.13
 - **Fix:** The add-on version in the gateway page footer is now shown reliably regardless of how the add-on image was built (previously showed "unknown" when the add-on was installed directly from the repository rather than from the official image store).
 
@@ -52,6 +57,11 @@
 ---
 
 # Änderungsprotokoll (Deutsch)
+
+## 0.1.16
+- **Funktion:** Eine neue Opt-in-Option aktiviert die offizielle lokale WebSocket-API des Gateways. Zusammen mit der HACS-Integration **GARDENA smart local (preview)** entsteht eine native Home-Assistant-Rasenmäher-Entität mit Start, Parken und modellabhängig Pause, ohne Matter, MQTT oder das Pairing-KVS zu verändern.
+- **Fix:** Die IPv6-Warteschleife verwendet jetzt einen BusyBox-kompatiblen Befehl für die erste Ausgabezeile; `head -1` kann den Launcher nicht mehr in eine Fehlerschleife schicken.
+- **Fix:** Die Ermittlung der Add-on-Version bricht nicht mehr wegen einer ungebundenen Variable ab, wenn `SUPERVISOR_TOKEN` fehlt.
 
 ## 0.1.13
 - **Fix:** Die Add-on-Version im Footer der Gateway-Seite wird jetzt zuverlässig angezeigt, unabhängig davon, wie das Add-on-Image gebaut wurde (bisher erschien dort teilweise „unknown", wenn das Add-on direkt aus dem Repository statt aus dem offiziellen Image-Store installiert wurde).

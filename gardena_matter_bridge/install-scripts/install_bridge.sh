@@ -245,7 +245,7 @@ wait_routable_ipv6() {
         #   - NICHT 'ppp' im interface-Namen
         # Auf BusyBox ip sind scope-Angaben verfuegbar.
         local found
-        found=\$(ip -6 addr show 2>/dev/null | grep 'inet6' | grep -v 'scope link' | grep -E '^\s+inet6 (2|3|fd)' | grep -v 'fc00:' | head -1)
+        found=\$(ip -6 addr show 2>/dev/null | grep 'inet6' | grep -v 'scope link' | grep -E '^\s+inet6 (2|3|fd)' | grep -v 'fc00:' | sed -n '1p')
         if [ -n "\${found}" ]; then
             # Routbare IPv6 gefunden: IP extrahieren und loggen
             local ipv6

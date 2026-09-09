@@ -44,3 +44,6 @@ configuration:
   mqtt_ha_prefix:
     name: "Home-Assistant-Discovery-Präfix"
     description: "Präfix für MQTT Discovery in Home Assistant (Standard: homeassistant)."
+  enable_local_control:
+    name: "Lokale Mäher-Steuerung aktivieren"
+    description: "Aktiviert die offizielle lokale GARDENA-WebSocket-API. Danach stellt die HACS-Integration 'GARDENA smart local (preview)' den Mäher als lawn_mower-Entität mit Start, Parken und modellabhängig Pause bereit. Matter und MQTT bleiben unverändert."

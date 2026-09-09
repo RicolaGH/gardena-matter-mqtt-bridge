@@ -68,7 +68,8 @@ MQTT_BROKER_USER="$(read_opt 'mqtt_broker_user' '')"
 MQTT_BROKER_PASSWORD="$(read_opt 'mqtt_broker_password' '')"
 MQTT_TOPIC_PREFIX="$(read_opt 'mqtt_topic_prefix' 'gardena')"
 MQTT_HA_PREFIX="$(read_opt 'mqtt_ha_prefix' 'homeassistant')"
-log "  enable_mqtt=${ENABLE_MQTT}  mqtt_broker_host=${MQTT_BROKER_HOST}  mqtt_broker_port=${MQTT_BROKER_PORT}  mqtt_topic_prefix=${MQTT_TOPIC_PREFIX}  mqtt_ha_prefix=${MQTT_HA_PREFIX}"
+ENABLE_LOCAL_CONTROL="$(read_opt 'enable_local_control' 'false')"
+log "  enable_mqtt=${ENABLE_MQTT}  enable_local_control=${ENABLE_LOCAL_CONTROL}  mqtt_broker_host=${MQTT_BROKER_HOST}  mqtt_broker_port=${MQTT_BROKER_PORT}  mqtt_topic_prefix=${MQTT_TOPIC_PREFIX}  mqtt_ha_prefix=${MQTT_HA_PREFIX}"
 # Passwort NIEMALS loggen (R12)
 if [ -n "${MQTT_BROKER_PASSWORD}" ]; then log "  mqtt_broker_password=<gesetzt>"; else log "  mqtt_broker_password=<leer>"; fi
 
@@ -95,7 +96,7 @@ fi
 # bleibt ADDON_VERSION ungesetzt -> load_addon_version() greift auf config.yaml-Fallback.
 # SUPERVISOR_TOKEN wird NIEMALS geloggt (R12).
 _api_version="$(curl -sSL \
-    -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" \
+    -H "Authorization: Bearer ${SUPERVISOR_TOKEN:-}" \
     http://supervisor/addons/self/info 2>/dev/null \
     | jq -r '.data.version // empty' 2>/dev/null || true)"
 if [ -n "${_api_version}" ]; then
@@ -131,6 +132,7 @@ if [ "${ENABLE_WEB_UI}" = "true" ]; then
     export GARDENA_MQTT_BROKER_PASSWORD="${MQTT_BROKER_PASSWORD}"
     export GARDENA_MQTT_TOPIC_PREFIX="${MQTT_TOPIC_PREFIX}"
     export GARDENA_MQTT_HA_PREFIX="${MQTT_HA_PREFIX}"
+    export GARDENA_ENABLE_LOCAL_CONTROL="${ENABLE_LOCAL_CONTROL}"
     exec python3 "${ADDON_DIR}/web_ui.py"
 else
     warn "enable_web_ui=false -> keine UI. Add-on bleibt im Leerlauf (Onboarding via UI deaktiviert)."

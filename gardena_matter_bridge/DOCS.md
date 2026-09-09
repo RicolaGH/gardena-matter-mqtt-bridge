@@ -95,6 +95,22 @@ The login endpoint is `/login` (not `/authentication/login`).
 | `mqtt_broker_password` | password | MQTT broker password. **Never logged.** |
 | `mqtt_topic_prefix` | str | Topic prefix (default `gardena`) |
 | `mqtt_ha_prefix` | str | Home Assistant discovery prefix (default `homeassistant`) |
+| `enable_local_control` | bool | Enable the official local GARDENA WebSocket API for native mower controls (default: off) |
+
+## Native mower controls in Home Assistant
+
+MQTT remains the diagnostics/telemetry path. To add Start, Dock and, where the
+mower supports it, Pause as native Home Assistant controls:
+
+1. Enable **Local mower control** in the add-on configuration, save, restart
+   the add-on and run **Deploy / Re-Deploy** once.
+2. In HACS, install **GARDENA smart local (preview)** and restart Home Assistant.
+3. Go to **Settings → Devices & services → Add integration**, select
+   **GARDENA smart local (preview)** and enter the gateway address. Use the first
+   eight characters of the gateway device ID as its password.
+
+The integration creates a separate native `lawn_mower` entity. The existing
+Matter pairing, MQTT sensors and `chip_kvs` are not changed or removed.
 
 ## Troubleshooting — what to include when reporting a problem
 
@@ -212,6 +228,24 @@ Der Login-Endpunkt ist `/login` (nicht `/authentication/login`).
 | `mqtt_broker_password` | password | MQTT-Broker-Passwort. **Nie geloggt.** |
 | `mqtt_topic_prefix` | str | Topic-Praefix (Standard `gardena`) |
 | `mqtt_ha_prefix` | str | Home-Assistant-Discovery-Praefix (Standard `homeassistant`) |
+| `enable_local_control` | bool | Offizielle lokale GARDENA-WebSocket-API fuer native Maeher-Steuerung aktivieren (Standard: aus) |
+
+## Native Maeher-Steuerung in Home Assistant
+
+MQTT bleibt der Weg fuer Diagnose- und Sensordaten. So kommen **Start**,
+**Parken** und, sofern das Maehermodell es unterstuetzt, **Pause** als native
+Home-Assistant-Steuerung hinzu:
+
+1. In der Add-on-Konfiguration **Lokale Maeher-Steuerung aktivieren** einschalten,
+   speichern, das Add-on neu starten und einmal **Deploy / Re-Deploy** ausfuehren.
+2. In HACS **GARDENA smart local (preview)** installieren und Home Assistant neu
+   starten.
+3. Unter **Einstellungen → Geraete & Dienste → Integration hinzufuegen**
+   **GARDENA smart local (preview)** waehlen und die Gateway-Adresse eintragen.
+   Als Passwort dienen die ersten acht Zeichen der Gateway-Geraete-ID.
+
+Die Integration erzeugt eine separate native `lawn_mower`-Entitaet. Bestehendes
+Matter-Pairing, MQTT-Sensoren und `chip_kvs` werden weder veraendert noch entfernt.
 
 ## Fehlersuche — was du bei einer Problemmeldung angeben solltest
 
