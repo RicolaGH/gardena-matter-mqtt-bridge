@@ -12,7 +12,7 @@ Gateway**.
     GARDENA-Geräte als Kind-Geräte in HA**:
 
     - **2 × GARDENA smart Sensor** → Bodentemperatur + Batterie (Bodenfeuchte ab HA 2026.7)
-    - **1 × GARDENA SILENO Mäher** → erscheint als `vacuum`-Entity (read-only, keine Aktuierung)
+    - **1 × GARDENA SILENO Mäher** → read-only Matter-`vacuum` plus steuerbarer MQTT-`lawn_mower`
 
     Build ✅ · Permanente Installation ✅ · Reboot-fest (systemd-Service) ✅ ·
     `BridgedDeviceBasicInformation` (0x0039) auf jedem gebridgten Endpoint ✅ ·
@@ -69,11 +69,12 @@ Nutzungs-/Build-Anleitung: [Handbuch](manual.de.md).
 | MIPS-Cross-Build | ✅ | Cross-Build bewiesen, Binary 1,9 MiB stripped, fp_abi=0 Soft-Float |
 | SDK gepinnt | ✅ | On-Device-Start, connectedhomeip v1.5.1.0 gepinnt |
 | Sensoren in HA | ✅ | 2 Sensoren, Bodentemperatur + Batterie via `BridgedDeviceBasicInformation` |
-| Mäher als vacuum | ✅ | SILENO → `vacuum`-Entity (read-only, keine Aktuierung) |
+| Mäher-Steuerung | ✅ | Matter-`vacuum` ist read-only; MQTT-`lawn_mower` ergänzt lokales Start/Parken und modellabhängig Pause |
 | Permanente Installation | ✅ | Overlay-Install, systemd-Service, reboot-fest |
 | Gateway-Web-UI | ✅ | Statische `matter.html` + kompilierter Toggle (0 RAM idle) |
 | Konformitäts-Harness | ✅ | chip-tool E2E-Harness + Voll-Wildcard-Interview-Check |
 | MQTT-Frontend | ✅ | Parallel zu Matter, HA MQTT-Discovery — [Doku](mqtt.de.md) |
+| Native Mäher-Steuerung | ✅ | In Add-on 0.2.0 integriert; keine separate Custom-Integration |
 | HA-Add-on | ✅ | 1-Klick-Install per Add-on-Repository, Auto-Deploy auf das Gateway |
 
 ## Verbleibende Herausforderungen

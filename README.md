@@ -66,8 +66,8 @@ This bridge is developed and verified against my own, real GARDENA hardware:
 - **GARDENA smart Gateway (Art. 19005)** — the Matter stack runs directly on this gateway.
 - **GARDENA smart sensors** — soil moisture, temperature and battery. Every sensor in the test
   set is discovered automatically; there is no fixed device list in the code.
-- **1 × GARDENA SILENO robotic mower** — status and battery, read-only as a Matter `vacuum`
-  (no actuation, for garden safety).
+- **1 × GARDENA SILENO robotic mower** — status and battery as a read-only Matter `vacuum`,
+  plus local Start/Dock and model-dependent Pause via the add-on's MQTT `lawn_mower` entity.
 
 Everything else in the device model — **water control / valves, irrigation control, the pressure
 pump, the smart power plug and further sensor and mower variants** — is already modelled in code,

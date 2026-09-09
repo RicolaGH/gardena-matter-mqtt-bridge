@@ -23,11 +23,12 @@ on real hardware.
 - **MQTT frontend** — runs alongside Matter; publishes sensor values to any MQTT broker with
   Home Assistant auto-discovery. Diagnostic values (RF link quality, mower runtime, error codes)
   that don't fit a Matter cluster appear as HA `sensor` entities. → [MQTT documentation](mqtt.md)
+- **Native mower control in add-on 0.2.0** — MQTT `lawn_mower` with local Start, Dock and
+  model-dependent Pause; no separate custom integration.
 
 ## 🔜 Next
 
-- **More device types.** Water valves, smart power sockets, pumps, and robotic mowers (mapped to the
-  Matter robotic-vacuum profile, so start/stop/pause/return-home work as real controls).
+- **More device types.** Water valves, smart power sockets and pumps.
 - **Long-term coexistence hardening** — mDNS via the vendor's system service (no own responder),
   resilient to vendor firmware updates.
 
@@ -48,7 +49,7 @@ verified / planned, ⚪ = planned, not yet hardware-tested):
 | smart Irrigation Control | 6 × Water Valve (one device) | six independent valves | ⚪ |
 | smart Power | On/Off plug | switchable socket | ⚪ |
 | Pump / Pressure Pump | Pump | pressure & flow sensors (+ on/off) | ⚪ |
-| Robotic mower (SILENO) | Robotic Vacuum Cleaner profile | **status (mowing/parked/charging) + battery — read-only**; start/stop later | ✅ (Matter status + battery chip-tool-verified; HA vacuum entity live; write control planned) |
+| Robotic mower (SILENO) | Matter vacuum + MQTT lawn mower | Matter status/battery; local Start, Dock and model-dependent Pause via MQTT | ✅ (Matter read-only; add-on control available) |
 
 Diagnostic values without a Matter standard (radio link quality, mower runtime) are published via
 the MQTT frontend as `diagnostic` entities in Home Assistant. → [MQTT documentation](mqtt.md)

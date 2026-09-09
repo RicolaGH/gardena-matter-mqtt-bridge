@@ -15,8 +15,9 @@ Matter handles **standard device profiles well** (sensors, valves, plugs). Diagn
 that do not fit a Matter cluster — **radio link quality, mower runtime, error codes** — are
 visible in HA as MQTT `sensor` entities instead.
 
-Both paths can run **at the same time**: the bridge does not know about the publisher, and the
-publisher does not touch the bridge.
+Both paths can run **at the same time**. Version 0.2.0 also adds a controller inside the add-on;
+it publishes a native MQTT `lawn_mower` entity and forwards commands to the gateway's official
+local API.
 
 ## How it works
 
@@ -44,7 +45,7 @@ automatically. No manual entity configuration needed.
 | GARDENA device | MQTT entities |
 |---|---|
 | smart Sensor / Sensor II | soil temperature, battery |
-| SILENO robotic mower | status (mowing / parked / charging), battery, RF link quality, runtime, error code |
+| SILENO robotic mower | status, battery, RF link quality, runtime, error code, plus Start/Dock and model-dependent Pause control |
 | Water Control / Irrigation Control | battery, RF link quality |
 | smart Power | battery, RF link quality |
 | Pump | battery, RF link quality |
@@ -67,9 +68,15 @@ In the add-on configuration:
 | `mqtt_broker_password` | _(your password)_ | Broker password — stored encrypted, never logged. |
 | `mqtt_topic_prefix` | `gardena` | Prefix for state topics (`gardena/<hash>/<resource>/state`). |
 | `mqtt_ha_prefix` | `homeassistant` | Prefix for discovery topics — match your HA MQTT integration. |
+| `enable_local_control` | `true` | Add the native MQTT mower control directly from the add-on. |
 
 Set `enable_mqtt: true`, fill in your broker details, and click **Save → Restart**. The
 publisher will be deployed to the gateway and started automatically.
+
+For mower control, also leave `enable_local_control: true` and
+`disable_ssh_after_deploy: false`. Restart the add-on and run **Deploy / Re-Deploy** once.
+Home Assistant then discovers a separate `lawn_mower` control device automatically. No custom
+integration is needed. The Matter entity remains read-only; commands use the MQTT control entity.
 
 !!! tip "Mosquitto in Home Assistant"
     If you use the **Mosquitto add-on** in HA, the broker host is usually

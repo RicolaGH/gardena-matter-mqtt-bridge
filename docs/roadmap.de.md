@@ -24,11 +24,12 @@ auf echter Hardware verifiziert wurde.
   Home-Assistant-Auto-Discovery. Diagnose-Werte (Funkverbindungsqualität, Mäher-Laufzeit,
   Fehlercodes), die in keinen Matter-Cluster passen, erscheinen als HA-`sensor`-Entitäten.
   → [MQTT-Dokumentation](mqtt.de.md)
+- **Native Mäher-Steuerung in Add-on 0.2.0** — MQTT-`lawn_mower` mit lokalem Start, Parken
+  und modellabhängig Pause; keine separate Custom-Integration.
 
 ## 🔜 Als Nächstes
 
-- **Mehr Gerätetypen.** Wasserventile, schaltbare Steckdosen, Pumpen und Mähroboter (auf das
-  Matter-Saugroboter-Profil abgebildet, sodass Start/Stopp/Pause/Heimfahrt als echte Steuerung funktionieren).
+- **Mehr Gerätetypen.** Wasserventile, schaltbare Steckdosen und Pumpen.
 - **Langzeit-Koexistenz-Härtung** — mDNS über den Hersteller-System-Service (kein eigener Responder),
   robust gegen Hersteller-Firmware-Updates.
 
@@ -49,7 +50,7 @@ Jedes bekannte GARDENA-Produkt wird zu einem Matter-Gerät. Übersicht (✅ = li
 | smart Irrigation Control | 6 × Wasserventil (ein Gerät) | sechs unabhängige Ventile | ⚪ |
 | smart Power | An/Aus-Steckdose | schaltbare Steckdose | ⚪ |
 | Pumpe / Pressure Pump | Pumpe (Pump) | Druck- & Durchfluss-Sensor (+ An/Aus) | ⚪ |
-| Mähroboter (SILENO) | Saugroboter-Profil | **Status (mäht/parkt/lädt) + Batterie — read-only**; Start/Stopp später | ✅ (Matter-Status + Batterie chip-tool-verifiziert; HA-vacuum-Entität live; Schreibsteuerung geplant) |
+| Mähroboter (SILENO) | Matter-Saugroboter + MQTT-Rasenmäher | Matter-Status/Batterie; lokales Start, Parken und modellabhängig Pause per MQTT | ✅ (Matter read-only; Add-on-Steuerung verfügbar) |
 
 Diagnose-Werte ohne Matter-Standard (Funk-Empfangsqualität, Mäher-Laufzeit) werden über das
 MQTT-Frontend als `diagnostic`-Entitäten in Home Assistant veröffentlicht. → [MQTT-Dokumentation](mqtt.de.md)

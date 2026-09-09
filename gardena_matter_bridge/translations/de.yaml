@@ -13,7 +13,7 @@ configuration:
     description: "Die Status- und Onboarding-Seite des Add-ons in der Home-Assistant-Seitenleiste anzeigen."
   disable_ssh_after_deploy:
     name: "SSH nach Deploy sperren"
-    description: "SSH am Gateway nach dem Deploy wieder ausschalten. Der Add-on-Key bleibt installiert und übersteht Firmware-Updates."
+    description: "SSH am Gateway nach dem Deploy wieder ausschalten. Bei aktivierter lokaler Mäher-Steuerung ausgeschaltet lassen, da das Add-on einen verschlüsselten SSH-Tunnel für Befehle nutzt."
   github_repo:
     name: "Bridge-Release-Repository"
     description: "GitHub-Repository (owner/name), das das signierte Bridge-Release zum Deployen bereitstellt."
@@ -46,4 +46,4 @@ configuration:
     description: "Präfix für MQTT Discovery in Home Assistant (Standard: homeassistant)."
   enable_local_control:
     name: "Lokale Mäher-Steuerung aktivieren"
-    description: "Aktiviert die offizielle lokale GARDENA-WebSocket-API. Danach stellt die HACS-Integration 'GARDENA smart local (preview)' den Mäher als lawn_mower-Entität mit Start, Parken und modellabhängig Pause bereit. Matter und MQTT bleiben unverändert."
+    description: "Erzeugt direkt über dieses Add-on eine steuerbare MQTT-Rasenmäher-Entität mit Start, Parken und modellabhängig Pause. Keine zusätzliche Integration erforderlich. Matter und das Pairing bleiben unverändert."

@@ -75,6 +75,25 @@ class LocalControlApiTests(unittest.TestCase):
 
         self.assertTrue(plan.enable_local_control)
 
+    def test_native_control_rejects_disabling_ssh(self):
+        env = {
+            "GARDENA_GATEWAY_HOST": "192.0.2.10",
+            "GARDENA_DEVICE_ID": "secret-device-id",
+            "GARDENA_GITHUB_REPO": "owner/repo",
+            "GARDENA_RELEASE_TAG": "v1.0.0",
+            "GARDENA_ENABLE_LOCAL_CONTROL": "true",
+            "GARDENA_ENABLE_MQTT": "true",
+            "GARDENA_MQTT_BROKER_HOST": "192.0.2.20",
+            "GARDENA_DISABLE_SSH_AFTER": "true",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            cfg = web_ui._read_env_config()
+            with self.assertRaisesRegex(
+                orch.OrchestrationError,
+                "SSH-Verbindung dauerhaft",
+            ):
+                web_ui.build_deploy_plan(cfg, read_text=lock_reader)
+
     def test_existing_ssh_path_logs_in_before_enabling_local_control(self):
         calls = []
 

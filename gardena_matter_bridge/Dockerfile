@@ -33,6 +33,7 @@ RUN apk add --no-cache \
 # Add-on-Dateien
 COPY run.sh /run.sh
 COPY orchestrate.py /opt/gardena/orchestrate.py
+COPY mqtt_control.py /opt/gardena/mqtt_control.py
 COPY status.py /opt/gardena/status.py
 COPY web_ui.py /opt/gardena/web_ui.py
 COPY web/ /opt/gardena/web/
@@ -45,7 +46,7 @@ COPY bridge-release.lock /opt/gardena/bridge-release.lock
 # liest os.path.dirname(__file__)/config.yaml = /opt/gardena/config.yaml, falls
 # ADDON_VERSION-Env (Supervisor-API via run.sh) nicht gesetzt ist.
 COPY config.yaml /opt/gardena/config.yaml
-RUN chmod a+x /run.sh
+RUN chmod a+x /run.sh /opt/gardena/mqtt_control.py
 
 # Add-on-Metadaten (HA liest Labels)
 LABEL \

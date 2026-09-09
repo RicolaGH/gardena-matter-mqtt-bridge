@@ -267,9 +267,9 @@ class GatewayClient:
     def set_websocket_enabled(self, enable: bool) -> None:
         """Aktiviert die offizielle lokale GARDENA-WebSocket-API.
 
-        Die API ist der vom Gateway-Hersteller vorgesehene lokale Schreibweg
-        fuer Home-Assistant-Integrationen. Sie laeuft getrennt von Matter und
-        vom MQTT-Publisher und beruehrt deren Zustand nicht.
+        Die API ist der vom Gateway-Hersteller vorgesehene lokale Schreibweg.
+        Ab 0.2.0 nutzt der add-on-eigene MQTT-Control-Dienst diesen Zugang; eine
+        zusaetzliche Home-Assistant-Integration ist nicht erforderlich.
         """
         resp = self.http(
             method="PUT",
@@ -799,6 +799,40 @@ def deploy_mqtt_publisher_if_enabled(
         # Fallback: Skript aus dem Bundle-Verzeichnis
         script_path = os.path.join(mqtt_publisher_dir, INSTALL_MQTT_SCRIPT)
 
+    # Re-Deploy-sicher: Ein laufendes Executable kann auf dem Gateway-Overlay
+    # nicht direkt ersetzt werden (ETXTBSY / "Text file busy"). Erst den
+    # systemd-Dienst stoppen und danach auch eventuell uebrig gebliebene
+    # Prozesse anhand von /proc/*/exe beenden. /proc statt pgrep ist notwendig,
+    # weil BusyBox lange Prozessnamen auf 15 Zeichen kuerzt.
+    stop_cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-i", private_key_path,
+        f"root@{gateway_host}",
+        (
+            f"systemctl stop {MQTT_SERVICE_NAME} >/dev/null 2>&1 || true; "
+            "PIDS=''; "
+            "for d in /proc/[0-9]*/exe; do "
+            "target=$(readlink \"$d\" 2>/dev/null || true); "
+            "case \"$target\" in "
+            "*/gardena-mqtt-publisher) pid=${d%/exe}; PIDS=\"$PIDS ${pid#/proc/}\" ;; "
+            "esac; done; "
+            "for pid in $PIDS; do kill \"$pid\" 2>/dev/null || true; done; "
+            "[ -z \"$PIDS\" ] || sleep 2; "
+            "for d in /proc/[0-9]*/exe; do "
+            "target=$(readlink \"$d\" 2>/dev/null || true); "
+            "case \"$target\" in */gardena-mqtt-publisher) exit 1 ;; esac; "
+            "done; exit 0"
+        ),
+    ]
+    if runner(stop_cmd) != 0:
+        raise OrchestrationError(
+            "Der laufende MQTT-Publisher konnte vor dem Update nicht beendet "
+            "werden. Deploy abgebrochen; Matter und KVS bleiben unveraendert."
+        )
+
     # OpenSSH >= 9 nutzt fuer scp standardmaessig SFTP. Das Gardena-Gateway
     # stellt jedoch keinen /usr/libexec/sftp-server bereit und akzeptiert nur
     # das klassische SCP-Protokoll. Ein temporaerer PATH-Wrapper erzwingt -O
@@ -833,6 +867,25 @@ def deploy_mqtt_publisher_if_enabled(
         raise OrchestrationError(
             f"MQTT-Publisher-Install-Skript fehlgeschlagen (Exit {rc}). "
             "Broker-Konfiguration pruefen (Host/Port/Credentials)."
+        )
+
+    # enable_mqtt=true bedeutet: Nach einem erfolgreichen Deploy soll der
+    # Publisher wieder laufen. Der Bundle-Installer installiert die Unit bewusst
+    # ohne Autostart; deshalb starten wir sie hier explizit neu.
+    start_cmd = [
+        "ssh",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "BatchMode=yes",
+        "-o", "ConnectTimeout=5",
+        "-i", private_key_path,
+        f"root@{gateway_host}",
+        f"systemctl daemon-reload && systemctl start {MQTT_SERVICE_NAME}",
+    ]
+    if runner(start_cmd) != 0:
+        raise OrchestrationError(
+            "MQTT-Publisher wurde installiert, konnte danach aber nicht "
+            "gestartet werden. Details: journalctl -u "
+            "gardena-mqtt-publisher.service --no-pager"
         )
 
     # Ein erfolgreicher Installer-Exit reicht nicht: der Publisher kann nach
@@ -876,8 +929,8 @@ class DeployPlan:
     # None = MQTT-Deploy deaktiviert (kein enable_mqtt in Optionen).
     mqtt_config: Optional[MqttConfig] = None
     # Aktiviert die offizielle lokale WebSocket-API auf dem Gateway. Diese wird
-    # von der HA-Integration "GARDENA smart local (preview)" fuer echte
-    # lawn_mower-Steuerbefehle (Start/Dock/Pause) verwendet.
+    # vom add-on-eigenen MQTT-Control-Dienst fuer echte lawn_mower-Befehle
+    # (Start/Dock/Pause) verwendet.
     enable_local_control: bool = False
 
 

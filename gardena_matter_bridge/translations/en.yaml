@@ -13,7 +13,7 @@ configuration:
     description: "Show the add-on's status and onboarding page in the Home Assistant sidebar."
   disable_ssh_after_deploy:
     name: "Disable SSH after deploy"
-    description: "Turn SSH on the gateway back off once the deploy is done. The add-on's key stays installed and survives firmware updates."
+    description: "Turn SSH on the gateway back off once the deploy is done. Leave this disabled when local mower control is enabled, because the add-on uses an encrypted SSH tunnel for commands."
   github_repo:
     name: "Bridge release repository"
     description: "GitHub repository (owner/name) that provides the signed Bridge release to deploy."
@@ -46,4 +46,4 @@ configuration:
     description: "Prefix used for MQTT discovery in Home Assistant (default: homeassistant)."
   enable_local_control:
     name: "Enable local mower control"
-    description: "Enables the official local GARDENA WebSocket API. The HACS integration 'GARDENA smart local (preview)' can then expose the mower as a lawn_mower entity with Start, Dock and, depending on the model, Pause. Matter and MQTT remain unchanged."
+    description: "Creates a controllable MQTT lawn mower entity directly from this add-on with Start, Dock and model-dependent Pause. No additional integration is required. Matter and pairing remain unchanged."

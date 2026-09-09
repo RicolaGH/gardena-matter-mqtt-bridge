@@ -91,6 +91,15 @@ def build_deploy_plan(cfg: dict, *, read_text=None) -> "orch.DeployPlan":
     bleibt erhalten). Denselben effective_tag nutzen sowohl der SHA-Pin-Resolve als
     auch DeployPlan.tag -> Download-Tag und Pin-Pfad sind immer konsistent.
     """
+    if (
+        cfg["enable_local_control"]
+        and cfg["mqtt_config"].enable
+        and cfg["disable_ssh_after"]
+    ):
+        raise orch.OrchestrationError(
+            "Lokale Mäher-Steuerung benötigt die SSH-Verbindung dauerhaft. "
+            "Bitte 'SSH nach Deploy deaktivieren' ausschalten."
+        )
     if read_text is None:
         lock = orch.load_release_lock(orch._default_read_text)
     else:
@@ -158,9 +167,8 @@ def run_deploy(cfg: dict, state: dict, *,
         if result.local_control_enabled:
             state["message"] = (
                 "Deploy erfolgreich. Matter und MQTT laufen; die lokale "
-                "GARDENA-Steuerung ist aktiviert. Jetzt in HACS die Integration "
-                "'GARDENA smart local (preview)' installieren und das Gateway "
-                "hinzufuegen."
+                "GARDENA-Steuerung ist aktiviert. Der Mäher wird automatisch "
+                "als steuerbare MQTT-Entität in Home Assistant angelegt."
             )
         else:
             state["message"] = "Deploy erfolgreich. Die Bridge laeuft jetzt auf dem Gateway."

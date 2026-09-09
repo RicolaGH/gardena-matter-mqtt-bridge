@@ -110,19 +110,25 @@ class MqttDeploymentTests(unittest.TestCase):
             )
 
         self.assertTrue(deployed)
-        self.assertEqual(len(calls), 2)
-        install_cmd = calls[0]
+        self.assertEqual(len(calls), 4)
+        stop_cmd = calls[0]
+        self.assertEqual(stop_cmd[0], "ssh")
+        self.assertIn("systemctl stop gardena-mqtt-publisher.service", stop_cmd[-1])
+        self.assertIn("/proc/[0-9]*/exe", stop_cmd[-1])
+        install_cmd = calls[1]
         self.assertIn("MQTT_BROKER_HOST=mqtt.internal", install_cmd)
         self.assertIn("MQTT_BROKER_PORT=2883", install_cmd)
         self.assertIn("MQTT_TOPIC_PREFIX=garden", install_cmd)
         self.assertIn("MQTT_HA_PREFIX=ha", install_cmd)
         self.assertEqual(len(scp_wrapper_contents), 1)
         self.assertIn(' -O "$@"', scp_wrapper_contents[0])
-        self.assertEqual(calls[1][0], "ssh")
-        self.assertIn("systemctl is-active --quiet gardena-mqtt-publisher.service", calls[1][-1])
+        self.assertEqual(calls[2][0], "ssh")
+        self.assertIn("systemctl start gardena-mqtt-publisher.service", calls[2][-1])
+        self.assertEqual(calls[3][0], "ssh")
+        self.assertIn("systemctl is-active --quiet gardena-mqtt-publisher.service", calls[3][-1])
 
     def test_service_that_dies_returns_actionable_error(self):
-        results = iter((0, 3))
+        results = iter((0, 0, 0, 3))
 
         with tempfile.TemporaryDirectory() as temp_dir:
             with self.assertRaisesRegex(
@@ -140,6 +146,29 @@ class MqttDeploymentTests(unittest.TestCase):
                     mqtt_publisher_dir=self._publisher_dir(temp_dir),
                     scripts_dir=str(Path(temp_dir) / "missing-scripts"),
                 )
+
+    def test_running_publisher_that_cannot_stop_aborts_before_copy(self):
+        calls = []
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with self.assertRaisesRegex(
+                orch.OrchestrationError,
+                "vor dem Update nicht beendet",
+            ):
+                orch.deploy_mqtt_publisher_if_enabled(
+                    lambda cmd: calls.append(list(cmd)) or 1,
+                    mqtt_config=orch.MqttConfig(
+                        enable=True,
+                        broker_host="mqtt.internal",
+                    ),
+                    gateway_host="192.0.2.10",
+                    private_key_path="/tmp/key",
+                    mqtt_publisher_dir=self._publisher_dir(temp_dir),
+                    scripts_dir=str(Path(temp_dir) / "missing-scripts"),
+                )
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0], "ssh")
 
     def test_missing_broker_never_falls_back_to_gateway(self):
         calls = []

@@ -1,7 +1,15 @@
 # Changelog
 
+## 0.2.0
+- **Native mower control:** The add-on now creates a Home Assistant MQTT `lawn_mower` entity itself. Start, Dock and model-dependent Pause are forwarded locally to the gateway; no separate custom integration is needed.
+- **Safety:** Commands use the official local gateway WebSocket API over an encrypted SSH tunnel, ignore retained MQTT commands and report gateway rejection or timeout in the add-on log.
+- **Fix:** MQTT re-deploy stops and replaces the running publisher safely, preventing `Text file busy`.
+
+## 0.1.17
+- **Fix:** MQTT re-deploy now stops the running publisher before replacing its executable and starts it again afterwards, preventing `Text file busy`.
+
 ## 0.1.16
-- **Feature:** An opt-in add-on setting enables the gateway's official local WebSocket API. Together with the HACS integration **GARDENA smart local (preview)** this adds a native Home Assistant lawn-mower entity with Start, Dock and model-dependent Pause controls, without changing Matter, MQTT or the pairing KVS.
+- **Feature:** An opt-in add-on setting enables the gateway's official local WebSocket API for an earlier external-integration control path.
 - **Fix:** The IPv6 wait loop now uses a BusyBox-compatible first-line command, preventing the launcher from repeatedly failing on `head -1`.
 - **Fix:** The add-on version lookup no longer fails with an unbound variable when `SUPERVISOR_TOKEN` is unavailable.
 
@@ -58,8 +66,16 @@
 
 # Änderungsprotokoll (Deutsch)
 
+## 0.2.0
+- **Native Mäher-Steuerung:** Das Add-on erzeugt selbst eine Home-Assistant-MQTT-`lawn_mower`-Entität. Start, Parken und modellabhängig Pause werden lokal an das Gateway weitergegeben; eine separate Custom-Integration ist nicht nötig.
+- **Sicherheit:** Befehle nutzen die offizielle lokale Gateway-WebSocket-API über einen verschlüsselten SSH-Tunnel, Retained-MQTT-Befehle werden ignoriert und Ablehnung oder Timeout im Add-on-Log gemeldet.
+- **Fix:** Beim MQTT-Re-Deploy wird der laufende Publisher sicher beendet und ersetzt; `Text file busy` tritt dadurch nicht mehr auf.
+
+## 0.1.17
+- **Fix:** Beim MQTT-Re-Deploy wird der laufende Publisher jetzt vor dem Ersetzen der Programmdatei beendet und danach wieder gestartet. Dadurch tritt `Text file busy` nicht mehr auf.
+
 ## 0.1.16
-- **Funktion:** Eine neue Opt-in-Option aktiviert die offizielle lokale WebSocket-API des Gateways. Zusammen mit der HACS-Integration **GARDENA smart local (preview)** entsteht eine native Home-Assistant-Rasenmäher-Entität mit Start, Parken und modellabhängig Pause, ohne Matter, MQTT oder das Pairing-KVS zu verändern.
+- **Funktion:** Eine neue Opt-in-Option aktiviert die offizielle lokale WebSocket-API des Gateways für einen früheren externen Integrationsweg.
 - **Fix:** Die IPv6-Warteschleife verwendet jetzt einen BusyBox-kompatiblen Befehl für die erste Ausgabezeile; `head -1` kann den Launcher nicht mehr in eine Fehlerschleife schicken.
 - **Fix:** Die Ermittlung der Add-on-Version bricht nicht mehr wegen einer ungebundenen Variable ab, wenn `SUPERVISOR_TOKEN` fehlt.
 

@@ -12,7 +12,7 @@ gateway**.
     devices show up as child devices in HA**:
 
     - **2 × GARDENA smart Sensor** → soil temperature + battery (soil moisture from HA 2026.7)
-    - **1 × GARDENA SILENO mower** → appears as a `vacuum` entity (read-only, no actuation)
+    - **1 × GARDENA SILENO mower** → read-only Matter `vacuum` plus a controllable MQTT `lawn_mower`
 
     Build ✅ · Persistent install ✅ · Reboot-safe (systemd service) ✅ ·
     `BridgedDeviceBasicInformation` (0x0039) on every bridged endpoint ✅ ·
@@ -69,11 +69,12 @@ User/build instructions: [Manual](manual.md).
 | MIPS cross-build | ✅ | Cross-build proven, binary 1.9 MiB stripped, soft-float fp_abi=0 |
 | SDK pinned | ✅ | On-device start, connectedhomeip v1.5.1.0 pinned |
 | Sensors in HA | ✅ | 2 sensors, soil temperature + battery via `BridgedDeviceBasicInformation` |
-| Mower as vacuum | ✅ | SILENO → `vacuum` entity (read-only, no actuation) |
+| Mower control | ✅ | Matter `vacuum` is read-only; MQTT `lawn_mower` adds local Start/Dock and model-dependent Pause |
 | Persistent install | ✅ | Overlay install, systemd service, reboot-safe |
 | Gateway web UI | ✅ | Static `matter.html` + compiled toggle (0 RAM idle) |
 | Conformance harness | ✅ | chip-tool E2E harness + full wildcard interview check |
 | MQTT frontend | ✅ | Parallel to Matter, HA MQTT-Discovery — [docs](mqtt.md) |
+| Native mower control | ✅ | Built into add-on 0.2.0; no separate custom integration |
 | HA add-on | ✅ | 1-click install via add-on repository, auto-deploy to gateway |
 
 ## Remaining challenges

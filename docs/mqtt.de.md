@@ -16,8 +16,9 @@ Matter eignet sich gut für **Standardgeräte** (Sensoren, Ventile, Steckdosen).
 die in kein Matter-Cluster passen — **Funkverbindungsqualität, Mäher-Laufzeit, Fehlercodes** —
 erscheinen als MQTT-`sensor`-Entitäten in Home Assistant.
 
-Beide Pfade können **gleichzeitig** laufen: Die Bridge weiß nichts vom Publisher, und der
-Publisher berührt die Bridge nicht.
+Beide Pfade können **gleichzeitig** laufen. Version 0.2.0 ergänzt außerdem einen Controller im
+Add-on; er veröffentlicht eine native MQTT-`lawn_mower`-Entität und leitet Befehle an die
+offizielle lokale Gateway-API weiter.
 
 ## Wie es funktioniert
 
@@ -46,7 +47,7 @@ automatisch. Keine manuelle Entitätskonfiguration nötig.
 | GARDENA-Gerät | MQTT-Entitäten |
 |---|---|
 | smart Sensor / Sensor II | Bodentemperatur, Akku |
-| SILENO Mähroboter | Status (mähen / geparkt / laden), Akku, Funkverbindungsqualität, Laufzeit, Fehlercode |
+| SILENO Mähroboter | Status, Akku, Funkverbindungsqualität, Laufzeit, Fehlercode sowie Start/Parken und modellabhängig Pause |
 | Water Control / Irrigation Control | Akku, Funkverbindungsqualität |
 | smart Power | Akku, Funkverbindungsqualität |
 | Pumpe | Akku, Funkverbindungsqualität |
@@ -70,9 +71,16 @@ In der Add-on-Konfiguration:
 | `mqtt_broker_password` | _(dein Passwort)_ | Broker-Passwort — wird verschlüsselt gespeichert, nie geloggt. |
 | `mqtt_topic_prefix` | `gardena` | Präfix für State-Topics (`gardena/<Hash>/<Ressource>/state`). |
 | `mqtt_ha_prefix` | `homeassistant` | Präfix für Discovery-Topics — muss zur HA-MQTT-Integration passen. |
+| `enable_local_control` | `true` | Native MQTT-Mäher-Steuerung direkt aus dem Add-on hinzufügen. |
 
 `enable_mqtt: true` setzen, Broker-Daten eintragen und **Speichern → Neu starten** klicken.
 Der Publisher wird automatisch auf dem Gateway installiert und gestartet.
+
+Für die Mäher-Steuerung zusätzlich `enable_local_control: true` und
+`disable_ssh_after_deploy: false` belassen. Add-on neu starten und einmal
+**Deploy / Re-Deploy** ausführen. Home Assistant erkennt danach automatisch ein separates
+`lawn_mower`-Steuergerät. Es ist keine Custom-Integration nötig. Die Matter-Entität bleibt
+read-only; gesteuert wird über die MQTT-Entität.
 
 !!! tip "Mosquitto in Home Assistant"
     Wenn du das **Mosquitto-Add-on** in HA verwendest, ist der Broker-Host normalerweise

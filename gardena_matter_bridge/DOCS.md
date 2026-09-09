@@ -84,7 +84,7 @@ The login endpoint is `/login` (not `/authentication/login`).
 | `gateway_host` | str | IP/hostname of the gateway (e.g. `GARDENA-123456` or `192.168.1.100`) |
 | `device_id` | password | Device ID from the sticker. Login PW = first 8 characters. **Never logged.** |
 | `enable_web_ui` | bool | Show the ingress status UI (default: on) |
-| `disable_ssh_after_deploy` | bool | Turn SSH off after deploy (key stays installed) |
+| `disable_ssh_after_deploy` | bool | Turn SSH off after deploy. Must stay **off** for native mower control. |
 | `github_repo` | str | Source of the bridge release (`owner/name`) |
 | `release_tag` | str | Release tag (default `v0.1.4`, matching `bridge-release.lock`) |
 | `github_token` | password | Optional. Only needed for a **private** bridge release repo. **Never logged.** |
@@ -95,21 +95,21 @@ The login endpoint is `/login` (not `/authentication/login`).
 | `mqtt_broker_password` | password | MQTT broker password. **Never logged.** |
 | `mqtt_topic_prefix` | str | Topic prefix (default `gardena`) |
 | `mqtt_ha_prefix` | str | Home Assistant discovery prefix (default `homeassistant`) |
-| `enable_local_control` | bool | Enable the official local GARDENA WebSocket API for native mower controls (default: off) |
+| `enable_local_control` | bool | Publish a native MQTT mower control directly from the add-on (default: on; requires MQTT) |
 
 ## Native mower controls in Home Assistant
 
-MQTT remains the diagnostics/telemetry path. To add Start, Dock and, where the
-mower supports it, Pause as native Home Assistant controls:
+Version 0.2.0 publishes Start, Dock and, where the mower supports it, Pause as a
+native Home Assistant MQTT `lawn_mower` entity. No separate custom integration
+is installed or required.
 
-1. Enable **Local mower control** in the add-on configuration, save, restart
-   the add-on and run **Deploy / Re-Deploy** once.
-2. In HACS, install **GARDENA smart local (preview)** and restart Home Assistant.
-3. Go to **Settings → Devices & services → Add integration**, select
-   **GARDENA smart local (preview)** and enter the gateway address. Use the first
-   eight characters of the gateway device ID as its password.
+1. Enable **MQTT publisher** and **Local mower control** in the add-on.
+2. Leave **Disable SSH after deploy** switched off. The add-on uses the existing
+   key for an encrypted local tunnel to the gateway control API.
+3. Save, restart the add-on and run **Deploy / Re-Deploy** once.
+4. Home Assistant discovers the mower control automatically through MQTT.
 
-The integration creates a separate native `lawn_mower` entity. The existing
+The add-on creates a separate native `lawn_mower` control device. The existing
 Matter pairing, MQTT sensors and `chip_kvs` are not changed or removed.
 
 ## Troubleshooting — what to include when reporting a problem
@@ -217,7 +217,7 @@ Der Login-Endpunkt ist `/login` (nicht `/authentication/login`).
 | `gateway_host` | str | IP/Hostname des Gateways (z. B. `GARDENA-123456` oder `192.168.1.100`) |
 | `device_id` | password | Geraete-ID vom Aufkleber. Login-PW = erste 8 Zeichen. **Nie geloggt.** |
 | `enable_web_ui` | bool | Ingress-Status-UI anzeigen (Standard: an) |
-| `disable_ssh_after_deploy` | bool | SSH nach Deploy sperren (Key bleibt installiert) |
+| `disable_ssh_after_deploy` | bool | SSH nach Deploy sperren. Muss fuer native Maeher-Steuerung **aus** bleiben. |
 | `github_repo` | str | Quelle des Bridge-Release (`owner/name`) |
 | `release_tag` | str | Release-Tag (Standard `v0.1.4`, passend zu `bridge-release.lock`) |
 | `github_token` | password | Optional. Nur fuer ein **privates** Bridge-Release-Repo. **Nie geloggt.** |
@@ -228,23 +228,22 @@ Der Login-Endpunkt ist `/login` (nicht `/authentication/login`).
 | `mqtt_broker_password` | password | MQTT-Broker-Passwort. **Nie geloggt.** |
 | `mqtt_topic_prefix` | str | Topic-Praefix (Standard `gardena`) |
 | `mqtt_ha_prefix` | str | Home-Assistant-Discovery-Praefix (Standard `homeassistant`) |
-| `enable_local_control` | bool | Offizielle lokale GARDENA-WebSocket-API fuer native Maeher-Steuerung aktivieren (Standard: aus) |
+| `enable_local_control` | bool | Native MQTT-Maeher-Steuerung direkt aus dem Add-on bereitstellen (Standard: an; benoetigt MQTT) |
 
 ## Native Maeher-Steuerung in Home Assistant
 
-MQTT bleibt der Weg fuer Diagnose- und Sensordaten. So kommen **Start**,
-**Parken** und, sofern das Maehermodell es unterstuetzt, **Pause** als native
-Home-Assistant-Steuerung hinzu:
+Version 0.2.0 stellt **Start**, **Parken** und, sofern das Maehermodell es
+unterstuetzt, **Pause** als native Home-Assistant-MQTT-`lawn_mower`-Entitaet
+bereit. Es wird keine separate Custom-Integration installiert oder benoetigt.
 
-1. In der Add-on-Konfiguration **Lokale Maeher-Steuerung aktivieren** einschalten,
-   speichern, das Add-on neu starten und einmal **Deploy / Re-Deploy** ausfuehren.
-2. In HACS **GARDENA smart local (preview)** installieren und Home Assistant neu
-   starten.
-3. Unter **Einstellungen → Geraete & Dienste → Integration hinzufuegen**
-   **GARDENA smart local (preview)** waehlen und die Gateway-Adresse eintragen.
-   Als Passwort dienen die ersten acht Zeichen der Gateway-Geraete-ID.
+1. In der Add-on-Konfiguration **MQTT-Publisher** und **Lokale Maeher-Steuerung**
+   einschalten.
+2. **SSH nach Deploy sperren** ausgeschaltet lassen. Das Add-on nutzt den bereits
+   vorhandenen Key fuer einen verschluesselten lokalen Tunnel zur Steuer-API.
+3. Speichern, das Add-on neu starten und einmal **Deploy / Re-Deploy** ausfuehren.
+4. Home Assistant erkennt die Maeher-Steuerung automatisch per MQTT Discovery.
 
-Die Integration erzeugt eine separate native `lawn_mower`-Entitaet. Bestehendes
+Das Add-on erzeugt ein separates natives `lawn_mower`-Steuergeraet. Bestehendes
 Matter-Pairing, MQTT-Sensoren und `chip_kvs` werden weder veraendert noch entfernt.
 
 ## Fehlersuche — was du bei einer Problemmeldung angeben solltest
