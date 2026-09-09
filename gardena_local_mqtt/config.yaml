@@ -1,5 +1,5 @@
 name: GARDENA Local MQTT (Preview)
-version: "0.1.0"
+version: "0.1.1"
 slug: gardena_local_mqtt
 description: Lokale Sensoren und Mähersteuerung direkt in Home Assistant. Ohne Gateway-Bridge-Download.
 url: https://github.com/RicolaGH/gardena-matter-mqtt-bridge

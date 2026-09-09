@@ -6,7 +6,7 @@ COPY *.py ./
 COPY LICENSE NOTICE config.yaml ./
 COPY run.sh /run.sh
 RUN chmod 755 /run.sh
-ARG BUILD_VERSION=0.1.0
+ARG BUILD_VERSION=0.1.1
 ARG BUILD_ARCH
 LABEL io.hass.type="addon" io.hass.name="GARDENA Local MQTT" \
       io.hass.version="${BUILD_VERSION}" io.hass.arch="${BUILD_ARCH}"

@@ -1,4 +1,4 @@
-# GARDENA Local MQTT — Testversion 0.1.0
+# GARDENA Local MQTT — Testversion 0.1.1
 
 Diese eigene Home-Assistant-App liest Sensorwerte und steuert Mäher lokal über
 das GARDENA smart Gateway. Sie lädt keine Releases aus dem Originalprojekt,
