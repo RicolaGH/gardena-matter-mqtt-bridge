@@ -1,0 +1,24 @@
+name: Local MQTT app
+on:
+  pull_request:
+  push:
+    branches: [main, feat/local-mqtt-app]
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: python3 -m unittest discover -s gardena_local_mqtt/tests -v
+      - run: python3 -m compileall -q gardena_local_mqtt
+      - run: bash -n gardena_local_mqtt/run.sh
+  image:
+    strategy:
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - run: docker build -t gardena-local-test gardena_local_mqtt
+      - run: docker run --rm --entrypoint python3 gardena-local-test -c 'import app, worker, telemetry, gateway, protocol'
