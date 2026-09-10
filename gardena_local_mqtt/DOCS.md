@@ -94,3 +94,19 @@ Publikationsrechte müssen vertrauenswürdig sein.
 
 Die Urheber- und Lizenzhinweise stehen in LICENSE und NOTICE. LsDL-Format und bisherige
 Mäherbefehle stammen aus den dokumentierten Schnittstellen und dem getesteten Fork-Code.
+
+## Alte Matter-Installation auf dem Gateway entfernen (App 0.2.1)
+
+App aktualisieren und starten. Bei bestätigtem Gateway-MQTT-Betrieb **Alte Matter-Komponenten entfernen** auswählen.
+Die Bereinigung wird nicht automatisch beim Update ausgeführt. Keine erneute Gateway-Installation erforderlich.
+Bekannte Matter-Dienste, Timer und Sockets werden deaktiviert, gestoppt und maskiert.
+Die alten Programmverzeichnisse und `matter.html` werden in eine private Sicherung unter
+`/usr/local/lib/gardena-local/matter-backup` verschoben. Diese Sicherung bleibt für eine
+manuelle Wiederherstellung erhalten und spart daher keinen Speicherplatz.
+Herstellerdaten, MQTT-Dienst, Matter-Pairingdaten unter `/var/lib/gardena-matter` und die
+möglicherweise gemeinsam verwendete QR-Bibliothek bleiben erhalten. Firewallregeln werden
+nicht pauschal entfernt, weil ihre Herkunft auf einem bestehenden Gateway nicht sicher feststeht.
+Unbekannte Matter-Units oder umgeleitete Elternverzeichnisse führen zum Abbruch.
+Nach Erfolg App wieder stoppen und MQTT prüfen. Die alte Seite mit einer vollständigen
+Browser-Aktualisierung aufrufen; eine bereits geöffnete Seite kann noch im Cache stehen.
+Bei Fehler bleiben Sicherungen erhalten. Die App meldet keinen Erfolg ohne abschließende MQTT-Prüfung.

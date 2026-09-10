@@ -10,6 +10,7 @@ import threading
 import time
 import storage
 import deploy
+import cleanup
 
 DEPLOY_LOCK = threading.Lock()
 
@@ -28,16 +29,21 @@ Die Übernahme beendet den bisherigen MQTT-Publisher auf dem Gateway. Dateien bl
 <p>Nach der Sensorübernahme: Den eigenständigen Gateway-Dienst installieren. Danach wird diese HA-App für den Betrieb nicht benötigt.</p>
 <button id="install" disabled>Auf Gateway installieren</button>
 <button id="restore" disabled>HA-Betrieb wiederherstellen</button>
+<p>Alte Matter-Dienste und Webseite sichern und aus dem Gateway-Betrieb entfernen. MQTT muss bereits auf dem Gateway laufen.</p>
+<button id="cleanup" disabled>Alte Matter-Komponenten entfernen</button>
+<p id="cleanup-status"></p>
 <p id="result" role="status"></p></main><script>
 const statusNode=document.getElementById('status'), take=document.getElementById('take'), back=document.getElementById('back');
 async function refresh(){try{let r=await fetch('api/status');if(!r.ok)throw Error();let s=await r.json();
 statusNode.textContent=s.message+'\\n'+(s.sensors===undefined?'':s.sensors+' Sensoren · '+s.mowers+' Mäher');
 take.disabled=s.mode!=='preview'||!s.fresh;back.disabled=!s.can_rollback;
 document.getElementById('install').disabled=!s.can_install;document.getElementById('restore').disabled=!s.can_restore;
+document.getElementById('cleanup').disabled=!s.can_cleanup;document.getElementById('cleanup-status').textContent=s.cleanup_message||'';
 if(s.mode==='gateway')document.getElementById('result').textContent='Installation abgeschlossen.';
 }catch(e){statusNode.textContent='Status momentan nicht erreichbar.';take.disabled=true;}}
 async function action(name){take.disabled=true;back.disabled=true;try{let r=await fetch('api/'+name,{method:'POST'});
 document.getElementById('result').textContent=r.ok?'Auftrag wird ausgeführt …':'Auftrag momentan nicht möglich.';}catch(e){document.getElementById('result').textContent='Verbindung unterbrochen.';}}
+document.getElementById('cleanup').onclick=()=>action('cleanup');
 document.getElementById('install').onclick=()=>action('install');document.getElementById('restore').onclick=()=>action('restore');
 take.onclick=()=>action('activate');back.onclick=()=>action('rollback');refresh();setInterval(refresh,3000);
 </script></html>'''
@@ -97,6 +103,9 @@ class Handler(BaseHTTPRequestHandler):
             status['can_rollback'] = bool(migration) and not gateway_mode and not DEPLOY_LOCK.locked()
             status['can_install'] = migration.get('phase') == 'active' and not DEPLOY_LOCK.locked()
             status['can_restore'] = gateway_mode and not DEPLOY_LOCK.locked()
+            cleanup_state = storage.read('cleanup.json', {}) or {}
+            status['can_cleanup'] = gateway_mode and status.get('mode') == 'gateway' and status['fresh'] and not DEPLOY_LOCK.locked()
+            status['cleanup_message'] = cleanup_state.get('message', 'Bereinigung läuft …' if cleanup_state.get('phase') == 'running' else '')
             self.send(200, status)
         else:
             self.send(404, {})
@@ -105,7 +114,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.allowed():
             return
         status = storage.read('status.json', {})
-        if self.path in ('/api/install', '/api/restore'):
+        if self.path in ('/api/install', '/api/restore', '/api/cleanup'):
             if not storage.read('migration.json') or not DEPLOY_LOCK.acquire(False):
                 self.send(409, {})
                 return
@@ -173,6 +182,8 @@ def main():
                 try:
                     if action == 'install':
                         deploy.install(stop_worker)
+                    elif action == 'cleanup':
+                        cleanup.run()
                     elif action == 'restore':
                         deploy.restore_ha()
                     next_check = 0

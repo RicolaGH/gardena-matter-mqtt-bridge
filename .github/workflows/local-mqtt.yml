@@ -2,7 +2,7 @@ name: Local MQTT app
 on:
   pull_request:
   push:
-    branches: [main, feat/local-mqtt-app, fix/gateway-autonomous-runtime]
+    branches: [main, feat/local-mqtt-app, fix/gateway-autonomous-runtime, fix/matter-gateway-cleanup]
 permissions:
   contents: read
 jobs:
@@ -13,6 +13,7 @@ jobs:
       - run: python3 -m unittest discover -s gardena_local_mqtt/tests -v
       - run: python3 -m compileall -q gardena_local_mqtt
       - run: bash -n gardena_local_mqtt/run.sh
+      - run: sh -n gardena_local_mqtt/cleanup.sh
       - run: git diff --check
   image:
     strategy:

@@ -1,3 +1,9 @@
+## 0.2.1
+
+- Explizite Gateway-Bereinigung für alte Matter-Dienste und Webseite.
+- Vorherige MQTT-Zustandsprüfung, feste Pfadliste und private Sicherung statt endgültigem Löschen.
+- Gateway-MQTT-Programm unverändert (Runtime-Version 0.2.0).
+
 # 0.2.0
 
 - MQTT-Sensoren und Mähersteuerung laufen nach Installation als eigener Gateway-Dienst.
