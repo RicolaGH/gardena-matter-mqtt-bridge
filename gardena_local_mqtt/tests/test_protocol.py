@@ -6,10 +6,10 @@ import unittest
 from pathlib import Path
 
 
-ADDON_DIR = Path(__file__).resolve().parents[1] / "gardena_matter_bridge"
+ADDON_DIR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ADDON_DIR))
 
-import mqtt_control as control  # noqa: E402
+import protocol as control  # noqa: E402
 
 
 class MqttProtocolTests(unittest.TestCase):

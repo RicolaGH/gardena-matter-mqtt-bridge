@@ -1,6 +1,0 @@
-{
-  "_comment": "v0.1.7: MQTT-Toggle dauerhaft (disable+stop / enable+start); Status authoritativ via systemctl is-active; Footer zeigt Add-on- und Bridge-Version. Bei neuem Release: tag + sha256 per build-bridge-release.sh-Ausgabe aktualisieren.",
-  "repo": "wuselAUT/gardena-matter-mqtt-bridge",
-  "tag": "v0.1.7",
-  "sha256": "bb36a5e3bb07703e0523abef3ff8b219246adccda3c700619afd373682752cf2"
-}
