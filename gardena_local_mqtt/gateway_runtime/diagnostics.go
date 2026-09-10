@@ -33,6 +33,8 @@ type diagnosticSnapshot struct {
     Pongs uint64 `json:"pongs"`
     WSRx int64 `json:"ws_rx"`
     SensorMS int64 `json:"sensor_ms"`
+    SensorMaxMS int64 `json:"sensor_max_ms"`
+    HeartbeatMaxMS int64 `json:"heartbeat_max_ms"`
     SensorFailures uint64 `json:"sensor_failures"`
     HeartbeatMS int64 `json:"heartbeat_ms"`
     HeapBytes uint64 `json:"heap_bytes"`
@@ -54,8 +56,8 @@ func(d *diagnosticState) attempt(){d.mu.Lock();defer d.mu.Unlock();d.state.Attem
 func(d *diagnosticState) tx(header byte){d.mu.Lock();defer d.mu.Unlock();d.state.MQTTTx=time.Now().Unix();if header==0xc0{d.state.Pings++}}
 func(d *diagnosticState) rx(header byte){d.mu.Lock();defer d.mu.Unlock();d.state.MQTTRx=time.Now().Unix();if header==0xd0{d.state.Pongs++}}
 func(d *diagnosticState) ws(){d.mu.Lock();defer d.mu.Unlock();d.state.WSRx=time.Now().Unix()}
-func(d *diagnosticState) sensors(elapsed time.Duration,err error){d.mu.Lock();defer d.mu.Unlock();d.state.SensorMS=elapsed.Milliseconds();if err!=nil{d.state.SensorFailures++}}
-func(d *diagnosticState) heartbeat(elapsed time.Duration){d.mu.Lock();defer d.mu.Unlock();d.state.HeartbeatMS=elapsed.Milliseconds()}
+func(d *diagnosticState) sensors(elapsed time.Duration,err error){d.mu.Lock();defer d.mu.Unlock();d.state.SensorMS=elapsed.Milliseconds();if d.state.SensorMS>d.state.SensorMaxMS{d.state.SensorMaxMS=d.state.SensorMS};if err!=nil{d.state.SensorFailures++};if elapsed>5*time.Second{d.eventLocked(diagnosticEvent{time.Now().Unix(),"sensor_read","slow"})}}
+func(d *diagnosticState) heartbeat(elapsed time.Duration){d.mu.Lock();defer d.mu.Unlock();d.state.HeartbeatMS=elapsed.Milliseconds();if d.state.HeartbeatMS>d.state.HeartbeatMaxMS{d.state.HeartbeatMaxMS=d.state.HeartbeatMS};if elapsed>30*time.Second{d.eventLocked(diagnosticEvent{time.Now().Unix(),"heartbeat","delayed"})}}
 func errorKind(err error)string {
     var network net.Error
     switch {
@@ -74,9 +76,12 @@ func(d *diagnosticState) failure(err error){
     d.mu.Lock();defer d.mu.Unlock()
     stage:=d.state.Stage;var wrapped stageError;if errors.As(err,&wrapped){stage=wrapped.stage}
     event:=diagnosticEvent{time.Now().Unix(),stage,errorKind(err)}
+    d.eventLocked(event)
+    log.Printf("Connection unavailable: stage=%s kind=%s; retrying",event.Stage,event.Kind)
+}
+func(d *diagnosticState) eventLocked(event diagnosticEvent){
     if len(d.state.Events)==32{copy(d.state.Events,d.state.Events[1:]);d.state.Events=d.state.Events[:31]}
     d.state.Events=append(d.state.Events,event)
-    log.Printf("Connection unavailable: stage=%s kind=%s; retrying",event.Stage,event.Kind)
 }
 func(d *diagnosticState) snapshot()diagnosticSnapshot {
     var mem runtime.MemStats;runtime.ReadMemStats(&mem)

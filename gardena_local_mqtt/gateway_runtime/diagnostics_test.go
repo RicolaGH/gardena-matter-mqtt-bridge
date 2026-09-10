@@ -19,6 +19,8 @@ func TestDiagnosticsAreBoundedAndNeverIncludeRawError(t *testing.T){
     s:=d.snapshot();if len(s.Events)!=32||s.Events[0].Stage!="mqtt_read"{t.Fatal("history not bounded/classified")}
     b,_:=json.Marshal(s);if bytes.Contains(b,[]byte("SECRET")){t.Fatal("raw error leaked")}
     if errorKind(&net.DNSError{IsTimeout:true})!="timeout"{t.Fatal("timeout not classified")}
+    d.sensors(6*time.Second,nil);d.sensors(time.Millisecond,nil);d.heartbeat(95*time.Second);d.heartbeat(15*time.Second)
+    s=d.snapshot();if s.SensorMaxMS!=6000||s.HeartbeatMaxMS!=95000||s.Events[31].Kind!="delayed"||s.Events[30].Kind!="slow"{t.Fatal("stall history not preserved")}
     path:=filepath.Join(t.TempDir(),"diagnostics.json");if e:=d.write(path);e!=nil{t.Fatal(e)}
     info,e:=os.Stat(path);if e!=nil||info.Mode().Perm()!=0600{t.Fatal("diagnostics not private")}
 }

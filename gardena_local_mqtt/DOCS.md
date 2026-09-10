@@ -123,8 +123,8 @@ und den Inhalt von **Verbindungsdiagnose** kopieren. Zeitangaben tragen ausdrüc
 Home Assistant kann dieselben Ereignisse in der lokalen Zeitzone anzeigen.
 
 Die Diagnose enthält den laufenden Arbeitsschritt und dessen Dauer, MQTT-Sende-/Empfangszeiten,
-Ping-/Pong-Zähler, Sensor-Lesedauer/-Fehler, den Abstand der Lebenszeichen sowie Go-Heap
-und Goroutinen. Die letzten 32 Verbindungsfehler werden mit Quelle und Fehlerklasse gespeichert.
+Ping-/Pong-Zähler, Sensor-Lesedauer/-Fehler, den Abstand der Lebenszeichen (jeweils auch Maximaldauer seit Start) sowie Go-Heap
+und Goroutinen. Die letzten 32 Verbindungsfehler und auffälligen Verzögerungen werden mit Quelle und Fehlerklasse gespeichert.
 Es werden keine Broker-Adressen, Gerätekennungen, Zugangsdaten, Payloads oder rohen Fehlertexte
 aufgenommen. Die private Datei `/run/gardena-local-diagnostics.json` wird alle fünf Sekunden
 atomar ersetzt. Die Historie beginnt mit jedem Prozessstart neu und ist kein dauerhaftes Log.

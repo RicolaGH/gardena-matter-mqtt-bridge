@@ -7,9 +7,9 @@ from worker import binding
 
 STAGES = {'starting','api_enable','ws_connect','ws_discover','mqtt_connect','mqtt_subscribe',
           'sensor_read','mqtt_publish','event_loop','heartbeat','retry_wait','mqtt_read','mqtt_write','ws_read','ws_write'}
-KINDS = {'timeout','connection_closed','protocol','file_missing','error'}
+KINDS = {'timeout','connection_closed','protocol','file_missing','error','slow','delayed'}
 NUMBERS = ('updated','started','stage_ms','attempts','mqtt_tx','mqtt_rx','pings','pongs','ws_rx',
-           'sensor_ms','sensor_failures','heartbeat_ms','heap_bytes','goroutines')
+           'sensor_ms','sensor_max_ms','heartbeat_max_ms','sensor_failures','heartbeat_ms','heap_bytes','goroutines')
 
 
 def number(value):
@@ -72,9 +72,9 @@ def display(record):
         'Letzter MQTT-Empfang: '+stamp(data['mqtt_rx']),
         f"MQTT Ping/Pong: {data['pings']}/{data['pongs']}",
         'Letzter API-Empfang: '+stamp(data['ws_rx']),
-        f"Letzte Sensorabfrage: {data['sensor_ms']} ms; Lesefehler: {data['sensor_failures']}",
-        f"Letzter Abstand der Lebenszeichen: {data['heartbeat_ms']} ms",
+        f"Sensorabfrage zuletzt / maximal: {data['sensor_ms']} / {data['sensor_max_ms']} ms; Lesefehler: {data['sensor_failures']}",
+        f"Abstand der Lebenszeichen zuletzt / maximal: {data['heartbeat_ms']} / {data['heartbeat_max_ms']} ms",
         f"Go-Heap: {data['heap_bytes']//1024} KiB; Goroutinen: {data['goroutines']}",
-        'Letzte Verbindungsfehler (max. 32, seit Prozessstart):']
+        'Letzte Diagnoseereignisse (max. 32, seit Prozessstart):']
     lines.extend(stamp(e['time'])+' · '+e['stage']+' · '+e['kind'] for e in data['events'])
     return '\n'.join(line for line in lines if line)
