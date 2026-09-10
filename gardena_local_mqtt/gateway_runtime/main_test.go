@@ -54,3 +54,21 @@ func TestGatewaySessionWorksWithoutHAAndRejectsRetainedCommand(t *testing.T){
  // Broker loss is detected; the main service loop can reconnect independently.
  conn.Close();select{case e:=<-finished:if e==nil{t.Fatal("broker loss not reported")};case <-time.After(3*time.Second):t.Fatal("runtime did not detect disconnect")}
 }
+
+func TestAutomaticBrokerReconnectWithoutInstaller(t *testing.T){
+ root:=fixture(t);cfg:=testConfig();cfg.MowerIDs=nil
+ listener,e:=net.Listen("tcp","127.0.0.1:0");if e!=nil{t.Fatal(e)};defer listener.Close();cfg.Port=listener.Addr().(*net.TCPAddr).Port
+ oldAPI,oldWS:=prepareLocalAPI,openLocalWS;defer func(){prepareLocalAPI=oldAPI;openLocalWS=oldWS}()
+ prepareLocalAPI=func(string)error{return nil}
+ openLocalWS=func(string)(*websocket,error){a,b:=net.Pipe();go func(){defer b.Close();for{_,body,e:=readClientFrame(b);if e!=nil{return};var requests []Message;if json.Unmarshal(body,&requests)!=nil{return};var replies []map[string]any;for _,r:=range requests{replies=append(replies,map[string]any{"request_id":r.RequestID,"success":true,"payload":map[string]any{}})};if sendServerFrame(b,replies)!=nil{return}}}();return &websocket{Conn:a},nil}
+ ctx,cancel:=context.WithCancel(context.Background());done:=make(chan struct{});go func(){run(ctx,cfg,root,10*time.Millisecond);close(done)}()
+ defer func(){cancel();select{case <-done:case <-time.After(3*time.Second):t.Error("shutdown timed out")}}()
+ for attempt:=0;attempt<2;attempt++{
+  listener.(*net.TCPListener).SetDeadline(time.Now().Add(3*time.Second))
+  conn,e:=listener.Accept();if e!=nil{t.Fatal(e)}
+  broker:=&mqttClient{Conn:conn,reader:bufio.NewReader(conn)}
+  if _,e=broker.receive();e!=nil{t.Fatal(e)};broker.send(0x20,[]byte{0,0});if _,e=broker.receive();e!=nil{t.Fatal(e)};broker.send(0x90,[]byte{0,1,0})
+  for{p,e:=broker.receive();if e!=nil{t.Fatal(e)};topic,payload,_,_:=parsePublish(p);if topic==cfg.availability()&&payload=="online"{break}}
+  if attempt==1{cancel()};conn.Close()
+ }
+}

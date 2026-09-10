@@ -148,6 +148,9 @@ func session(ctx context.Context,c Config,root string)error{
  case b:=<-events:var messages []Message;if json.Unmarshal(b,&messages)!=nil{continue};for _,msg:=range messages{if _,ok:=pending[msg.RequestID];ok{delete(pending,msg.RequestID);log.Printf("Command acknowledged: %t",msg.Success)};for i:=range mowers{apply(&mowers[i],msg);if a:=mowers[i].activity();a!=""{if e=m.publish(c.Prefix+"/"+mowers[i].Key+"/mower/activity/state",a,true);e!=nil{return e}}}}
  }}
 }
+func run(ctx context.Context,c Config,root string,retry time.Duration){
+ for ctx.Err()==nil{status(false);if e:=session(ctx,c,root);e!=nil{log.Print("Connection unavailable; retrying")};select{case <-ctx.Done():return;case <-time.After(retry):}}
+}
 func main(){
  path:=flag.String("config","/etc/gardena-local/config.json","configuration file");check:=flag.Bool("check",false,"validate configuration, sensor data and local API without publishing");showVersion:=flag.Bool("version",false,"print version");flag.Parse();if *showVersion{fmt.Println(version);return}
  debug.SetMemoryLimit(32*1024*1024);debug.SetGCPercent(50)
@@ -155,5 +158,5 @@ func main(){
  root:="/var/lib/lemonbeatd"
  if *check{if _,e=sensorValues(root,c.Plan);e==nil{e=enableAPI(c.GatewayPassword)};if e==nil{var w *websocket;w,e=connectWS(c.GatewayPassword);if e==nil{_,e=discover(w,c);w.Close()}};if e!=nil{log.Print("Gateway preflight failed");os.Exit(1)};fmt.Println("preflight-ok");return}
  ctx,stop:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM);defer stop()
- for ctx.Err()==nil{status(false);if e=session(ctx,c,root);e!=nil{log.Print("Connection unavailable; retry in 15s")};select{case <-ctx.Done():return;case <-time.After(15*time.Second):}}
+ run(ctx,c,root,15*time.Second)
 }
