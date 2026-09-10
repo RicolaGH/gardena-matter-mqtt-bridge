@@ -134,3 +134,13 @@ Abruffehler bleibt der letzte Stand ausdrücklich als nicht aktuell gekennzeichn
 Die Version verlängert keine Timeouts und unterdrückt keine Offline-Meldungen. Ein
 simulierter blockierter Sensorzugriff dient zur Prüfung der Diagnose; er beweist nicht,
 dass ein realer Netzwerkausfall diese Ursache hat.
+
+## Installationsfehler eingrenzen (App 0.2.3)
+
+Die Oberfläche und das App-Protokoll nennen den fehlgeschlagenen Installationsschritt.
+Diese Meldung bleibt getrennt vom Betriebsstatus des bereits laufenden Gateway-Dienstes
+sichtbar. Vor dem Upload werden Architektur und freier Speicher geprüft. Bei Platzmangel
+werden freie und benötigte KiB ausgegeben; das laufende Programm wird in diesem Fall nicht gestoppt.
+Alte Runtime-Versionen und die Matter-Sicherung werden nicht automatisch gelöscht.
+Ein Fehler nach der Umschaltung kann weiterhin den bestehenden Rückfallmechanismus auslösen.
+Die Diagnoseversion auf dem Gateway bleibt 0.2.2; App-Version und Runtime-Version unterscheiden sich.

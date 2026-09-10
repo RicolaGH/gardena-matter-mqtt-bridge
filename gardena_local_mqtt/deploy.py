@@ -5,6 +5,7 @@ import secrets
 from pathlib import Path
 import subprocess
 import time
+import urllib.error
 
 import storage
 import telemetry
@@ -77,29 +78,106 @@ def health(gw, expected_version=None):
     return state.get('ready') is True and state.get('version') in ((expected_version,) if expected_version else ('0.2.0', '0.2.2')) and abs(time.time()-state.get('updated',0)) < 90
 
 
+STEPS = {
+    'configuration': 'Einstellungen und Sensorzuordnung prüfen',
+    'gateway_access': 'Gateway-Anmeldung und SSH-Zugang prüfen',
+    'sensor_snapshot': 'Aktuelle Sensordaten lesen',
+    'local_binary': 'Mitgeliefertes Gateway-Programm lesen',
+    'gateway_space': 'Gateway-Architektur und freien Speicher prüfen',
+    'staging': 'Installationsverzeichnis vorbereiten',
+    'upload': 'Gateway-Programm übertragen',
+    'checksum': 'Übertragung und Prüfsumme prüfen',
+    'configuration_upload': 'Private Konfiguration übertragen',
+    'runtime_check': 'Neues Programm und lokale Gateway-API prüfen',
+    'handover': 'Gateway-Dienst umschalten',
+    'health': 'Betriebsbereitschaft der neuen Runtime prüfen',
+}
+
+class InstallError(Exception):
+    """Only locally constructed, non-sensitive explanations."""
+
+
+def step(name):
+    storage.write('installation.json', {'phase': 'running', 'step': name,
+        'message': 'Installation: '+STEPS[name]})
+
+
+def check_space(gw, required_kb):
+    architecture = gw.ssh('uname -m').decode().strip()
+    if architecture != 'mips':
+        raise InstallError('Nicht unterstützte Gateway-Architektur; erwartet wird MIPS.')
+    raw = gw.ssh("df -Pk /usr/local/lib | awk 'END {print $4}'").decode().strip()
+    if not raw.isascii() or not raw.isdecimal() or len(raw)>12:
+        raise InstallError('Freier Gateway-Speicher konnte nicht eindeutig ermittelt werden.')
+    free_kb = int(raw)
+    if free_kb < required_kb:
+        raise InstallError(f'Zu wenig freier Speicher auf dem Gateway: {free_kb} KiB frei, mindestens {required_kb} KiB benötigt. Es wurde keine neue Runtime übertragen und kein Dienst gestoppt.')
+
+
 def install(stop_worker):
+    step('configuration')
+    try:
+        _install(stop_worker)
+        storage.write('installation.json', {'phase': 'done',
+            'message': 'Gateway-Installation abgeschlossen; Runtime 0.2.2 ist bereit.'})
+    except Exception as exc:
+        state = storage.read('installation.json', {}) or {}
+        name = state.get('step', 'configuration')
+        label = STEPS.get(name, STEPS['configuration'])
+        if isinstance(exc, InstallError):
+            reason = str(exc)
+        elif isinstance(exc, (TimeoutError, subprocess.TimeoutExpired)):
+            reason = 'Zeitlimit überschritten.'
+        elif isinstance(exc, urllib.error.HTTPError):
+            reason = f'Gateway antwortet mit HTTP {exc.code}.'
+        elif isinstance(exc, FileNotFoundError):
+            reason = 'Eine erforderliche lokale Datei fehlt.'
+        elif isinstance(exc, ConnectionError):
+            reason = 'Verbindung oder entfernter Befehl fehlgeschlagen.'
+        elif isinstance(exc, ValueError):
+            reason = 'Daten oder Zuordnung konnten nicht validiert werden.'
+        else:
+            reason = 'Schritt konnte nicht abgeschlossen werden.'
+        message = 'Fehler bei „'+label+'“: '+reason
+        storage.write('installation.json', {'phase': 'error', 'step': name, 'message': message})
+        print('[gardena-install] '+message, flush=True)
+        raise
+
+
+def _install(stop_worker):
     cfg, gw = gateway()
     migration = storage.read('migration.json')
     payload = runtime_config(cfg, migration)
+    step('gateway_access')
     gw.prepare()
+    step('sensor_snapshot')
     telemetry.readings(migration['plan'], telemetry.parse_snapshot(gw.snapshot()))
+    step('local_binary')
     digest = hashlib.sha256(BINARY.read_bytes()).hexdigest()
     directory = REMOTE+'/releases/'+digest+'-'+secrets.token_hex(4)
     size_kb = (BINARY.stat().st_size+1023)//1024 + 512
+    step('gateway_space')
+    check_space(gw, size_kb)
+    step('staging')
     report('deploying', message='Gateway wird geprüft und vorbereitet. MQTT läuft bis zur Umschaltung weiter.')
     # Preserve all previous application and vendor files. Fail before handover if full.
     gw.ssh('set -e; test "$(uname -m)" = mips; '
         'mkdir -p '+REMOTE+'/releases; chmod 700 '+REMOTE+' '+REMOTE+'/releases; '
         'free=$(df -Pk '+REMOTE+' | awk \'END {print $4}\'); test "$free" -ge '+str(size_kb)+'; '
         'mkdir -p '+directory+'; chmod 700 '+directory)
+    step('upload')
     upload_binary(gw,directory)
+    step('checksum')
     gw.ssh('set -e; echo "'+digest+'  '+directory+'/binary.tmp" | sha256sum -c -; '
         'chmod 755 '+directory+'/binary.tmp; mv -f '+directory+'/binary.tmp '+directory+'/gardena-local-gateway')
+    step('configuration_upload')
     send_input(gw,'umask 077; cat > '+directory+'/config.json',json.dumps(payload).encode())
     send_input(gw,'umask 077; cat > '+directory+'/gardena-local.service',UNIT.encode())
+    step('runtime_check')
     report('deploying', message='Gateway prüft Sensoren und lokale Steuerung, ohne Befehle auszuführen.')
     gw.ssh(directory+'/gardena-local-gateway -config '+directory+'/config.json -check', timeout=90)
     # Journal before terminating the HA client. On uncertain outcomes never restart it automatically.
+    step('handover')
     storage.write('gateway_deployment.json', {'phase':'switching','binding':binding(cfg),'digest':digest})
     report('deploying', message='MQTT-Betrieb wird auf das Gateway übertragen.')
     stop_worker()
@@ -111,6 +189,7 @@ def install(stop_worker):
             'chmod 644 /etc/systemd/system/'+SERVICE+'; '
             'rm -f /run/gardena-local-status.json; systemctl daemon-reload; '
             'systemctl enable '+SERVICE+'; systemctl start '+SERVICE)
+        step('health')
         deadline = time.monotonic()+120
         while time.monotonic()<deadline:
             try:

@@ -1,3 +1,10 @@
+## 0.2.3
+
+- Konkrete Installationsschritte und sichere Fehlermeldungen dauerhaft in UI und App-Protokoll anzeigen.
+- Freien Gateway-Speicher vor Upload und Umschaltung separat prüfen; bei Platzmangel freie und benötigte KiB nennen.
+- Ein noch laufender alter Gateway-Dienst wird nicht mehr als erfolgreiche neue Installation angezeigt.
+- Gateway-Runtime bleibt 0.2.2; keine automatische Löschung alter Dateien oder Sicherungen.
+
 ## 0.2.2
 
 - Gateway-Diagnose für MQTT-Timeouts: Arbeitsschritt, Sensor-Lesezeit, Ping/Pong-Zähler, Zeitpunkte und begrenzte Fehlerhistorie.

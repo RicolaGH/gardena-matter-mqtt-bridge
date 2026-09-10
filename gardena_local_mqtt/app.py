@@ -42,7 +42,7 @@ take.disabled=s.mode!=='preview'||!s.fresh;back.disabled=!s.can_rollback;
 document.getElementById('install').disabled=!s.can_install;document.getElementById('restore').disabled=!s.can_restore;
 document.getElementById('cleanup').disabled=!s.can_cleanup;document.getElementById('cleanup-status').textContent=s.cleanup_message||'';
 document.getElementById('diagnostics').textContent=s.diagnostics_text;
-if(s.mode==='gateway')document.getElementById('result').textContent='Installation abgeschlossen.';
+if(s.install_message)document.getElementById('result').textContent=s.install_message;
 }catch(e){statusNode.textContent='Status momentan nicht erreichbar.';take.disabled=true;}}
 async function action(name){take.disabled=true;back.disabled=true;try{let r=await fetch('api/'+name,{method:'POST'});
 document.getElementById('result').textContent=r.ok?'Auftrag wird ausgeführt …':'Auftrag momentan nicht möglich.';}catch(e){document.getElementById('result').textContent='Verbindung unterbrochen.';}}
@@ -109,6 +109,7 @@ class Handler(BaseHTTPRequestHandler):
             cleanup_state = storage.read('cleanup.json', {}) or {}
             status['can_cleanup'] = gateway_mode and status.get('mode') == 'gateway' and status['fresh'] and not DEPLOY_LOCK.locked()
             status['cleanup_message'] = cleanup_state.get('message', 'Bereinigung läuft …' if cleanup_state.get('phase') == 'running' else '')
+            status['install_message'] = (storage.read('installation.json', {}) or {}).get('message', '')
             status['diagnostics_text'] = diagnostics.display(storage.read('diagnostics.json', {}))
             self.send(200, status)
         else:
@@ -194,7 +195,8 @@ def main():
                 except Exception:
                     storage.write('status.json', {'mode': 'gateway_error', 'updated': time.time(),
                         'message': 'Gateway-Installation fehlgeschlagen. Ein unklarer Gateway-Status verhindert parallele Steuerung. Protokoll prüfen.'})
-                    print('[gardena-install] Installation nicht abgeschlossen; Gateway-Daten und SSH-Verbindung prüfen.', flush=True)
+                    if action != 'install':
+                        print('[gardena-install] Aktion nicht abgeschlossen; Status in der Oberfläche prüfen.', flush=True)
                     next_check = time.monotonic() + 30
                 finally:
                     if DEPLOY_LOCK.locked():

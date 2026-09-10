@@ -1,5 +1,5 @@
 name: GARDENA Local MQTT
-version: "0.2.2"
+version: "0.2.3"
 slug: gardena_local_mqtt
 description: Installiert Sensoren und MQTT-Mähersteuerung auf dem Gateway. Die HA-App kann danach gestoppt werden.
 url: https://github.com/RicolaGH/gardena-matter-mqtt-bridge

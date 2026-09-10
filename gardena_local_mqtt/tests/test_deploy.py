@@ -40,7 +40,7 @@ class DeployTests(unittest.TestCase):
 
     def install(self,stop):
         with patch.object(deploy,'gateway',return_value=(self.cfg,self.gw)), \
-             patch.object(deploy,'BINARY',self.binary), \
+             patch.object(deploy,'BINARY',self.binary),patch.object(deploy,'check_space'), \
              patch.object(deploy.telemetry,'parse_snapshot',return_value=[]), \
              patch.object(deploy.telemetry,'readings'), \
              patch.object(deploy,'upload_binary'),patch.object(deploy,'send_input'), \
