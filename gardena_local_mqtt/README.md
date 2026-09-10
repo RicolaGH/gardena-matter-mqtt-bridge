@@ -1,9 +1,11 @@
 # GARDENA Local MQTT
 
-Eigenständige Home-Assistant-App für lokale GARDENA-Sensoren und Mähersteuerung.
-Keine Downloads oder installierten Binaries der ursprünglichen Matter-Bridge erforderlich.
+Installiert einen eigenen MQTT-Dienst auf dem GARDENA smart Gateway (19005).
+**Nach erfolgreicher Installation wird diese HA-App für den Betrieb nicht benötigt.**
+Sensoren und Mähersteuerung laufen auf dem Gateway weiter, solange der MQTT-Broker
+und das lokale Netzwerk erreichbar sind.
 
-**Testversion 0.1.1:** Erst Vorschau prüfen, dann die bestehende Bridge-App stoppen und
-die Übernahme auslösen. Noch nicht auf echter Gateway-Hardware validiert.
+Version 0.2.0 korrigiert die HA-Laufzeitarchitektur von 0.1.x. Nach dem App-Update
+muss einmal **Auf Gateway installieren** ausgeführt werden.
 
-Einrichtung, unterstützte Geräte, Migration und Rückkehr: [DOCS.md](DOCS.md).
+Einrichtung, Test ohne laufende HA-App und Rückfalloption: [DOCS.md](DOCS.md).
