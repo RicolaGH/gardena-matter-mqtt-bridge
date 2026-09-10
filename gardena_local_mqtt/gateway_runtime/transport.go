@@ -30,13 +30,13 @@ func (m *mqttClient) send(header byte, body []byte) error {
  packet:=[]byte{header}; n:=len(body)
  for { digit:=byte(n%128); n/=128; if n>0 { digit|=128 }; packet=append(packet,digit); if n==0 {break} }
  packet=append(packet,body...); m.SetWriteDeadline(time.Now().Add(10*time.Second))
- _,err:=io.Copy(m.Conn,bytes.NewReader(packet)); return err
+ _,err:=io.Copy(m.Conn,bytes.NewReader(packet)); if err==nil{diagnostics.tx(header)};return atStage("mqtt_write",err)
 }
 func (m *mqttClient) receive() (mqttPacket,error) {
  m.SetReadDeadline(time.Now().Add(90*time.Second)); first,err:=m.reader.ReadByte(); if err!=nil{return mqttPacket{},err}
  m.SetReadDeadline(time.Now().Add(15*time.Second)); n,mult:=0,1
  for i:=0;i<4;i++ { b,e:=m.reader.ReadByte(); if e!=nil{return mqttPacket{},e}; n+=int(b&127)*mult
-  if n>maxPacket{return mqttPacket{},errProtocol}; if b&128==0 {body:=make([]byte,n); _,e=io.ReadFull(m.reader,body); return mqttPacket{first,body},e}; mult*=128 }
+  if n>maxPacket{return mqttPacket{},errProtocol}; if b&128==0 {body:=make([]byte,n); _,e=io.ReadFull(m.reader,body);if e==nil{diagnostics.rx(first)}; return mqttPacket{first,body},e}; mult*=128 }
  return mqttPacket{},errProtocol
 }
 func (m *mqttClient) publish(topic,payload string,retain bool) error { h:=byte(0x30); if retain{h|=1}; return m.send(h,append(mqttString(topic),[]byte(payload)...)) }
@@ -92,6 +92,6 @@ func(w *websocket) receive()([]byte,error){
  w.SetReadDeadline(time.Now().Add(15*time.Second));if h[0]&0x80==0||h[0]&0x70!=0||h[1]&0x80!=0{return nil,errProtocol}
  n:=uint64(h[1]&127);if n==126{var b [2]byte;if _,err:=io.ReadFull(w.Conn,b[:]);err!=nil{return nil,err};n=uint64(binary.BigEndian.Uint16(b[:]))}else if n==127{var b [8]byte;if _,err:=io.ReadFull(w.Conn,b[:]);err!=nil{return nil,err};n=binary.BigEndian.Uint64(b[:])}
  op:=h[0]&15;if n>maxPacket||(op>=8&&n>125){return nil,errProtocol};body:=make([]byte,int(n));if _,err:=io.ReadFull(w.Conn,body);err!=nil{return nil,err}
- switch op{case 1:return body,nil;case 8:return nil,io.EOF;case 9:if err:=w.send(10,body);err!=nil{return nil,err};case 10:default:return nil,errProtocol}
+ diagnostics.ws();switch op{case 1:return body,nil;case 8:return nil,io.EOF;case 9:if err:=w.send(10,body);err!=nil{return nil,err};case 10:default:return nil,errProtocol}
  }
 }

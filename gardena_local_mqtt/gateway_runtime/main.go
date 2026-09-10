@@ -25,7 +25,7 @@ import (
  "time"
 )
 
-const version="0.2.0"
+const version="0.2.2"
 type Record struct {Topic string `json:"topic"`; Serial string `json:"serial"`; Resource string `json:"resource"`; Key string `json:"key"`; Config map[string]any `json:"config"`}
 type Config struct {
  Host string `json:"mqtt_host"`; Port int `json:"mqtt_port"`; User string `json:"mqtt_user"`; Password string `json:"mqtt_password"`
@@ -112,7 +112,7 @@ func(m Mower)command(action string)(map[string]any,error){
 func apply(m *Mower,msg Message){if msg.Entity["device"]!=m.ID||(msg.Op!="update"&&msg.Op!="overwrite"){return};path,ok:=msg.Entity["path"].(string);if !ok||path==""{return};target:=m.Data;for _,part:=range strings.Split(path,"/"){next,ok:=target[part].(map[string]any);if !ok{next=map[string]any{};target[part]=next};target=next};for k,v:=range msg.Payload{target[k]=v}}
 func publishJSON(m *mqttClient,topic string,payload any)error{b,e:=json.Marshal(payload);if e!=nil{return e};return m.publish(topic,string(b),true)}
 func publishAll(m *mqttClient,c Config,mowers []Mower,root string)error{
- values,e:=sensorValues(root,c.Plan);if e!=nil{return e}
+ values,e:=measuredSensorValues(root,c.Plan);if e!=nil{return e}
  for i,r:=range c.Plan{cfg:=map[string]any{};for k,v:=range r.Config{cfg[k]=v};cfg["availability_topic"]=c.availability();cfg["payload_available"]="online";cfg["payload_not_available"]="offline"
   if e=publishJSON(m,r.Topic,cfg);e!=nil{return e};if e=m.publish(r.Config["state_topic"].(string),values[i],true);e!=nil{return e}}
  for _,mower:=range mowers{base:=c.Prefix+"/"+mower.Key+"/mower";device:=map[string]any{"identifiers":[]string{"gardena_"+mower.Key},"name":mower.Name,"manufacturer":"GARDENA","model":mower.Name}
@@ -125,31 +125,35 @@ func publishAll(m *mqttClient,c Config,mowers []Mower,root string)error{
 func status(ready bool){b,_:=json.Marshal(map[string]any{"ready":ready,"version":version,"updated":time.Now().Unix()});_ = os.WriteFile("/run/gardena-local-status.json.tmp",b,0600);_ = os.Rename("/run/gardena-local-status.json.tmp","/run/gardena-local-status.json")}
 var prepareLocalAPI = enableAPI
 var openLocalWS = connectWS
+var pollInterval = 30*time.Second
+var heartbeatInterval = 15*time.Second
 func session(ctx context.Context,c Config,root string)error{
- if e:=prepareLocalAPI(c.GatewayPassword);e!=nil{return e};w,e:=openLocalWS(c.GatewayPassword);if e!=nil{return e};defer w.Close()
- mowers,e:=discover(w,c);if e!=nil{return e};m,e:=connectMQTT(c);if e!=nil{return e};defer m.Close()
+ diagnostics.attempt();diagnostics.stage("api_enable")
+ if e:=prepareLocalAPI(c.GatewayPassword);e!=nil{return e};diagnostics.stage("ws_connect");w,e:=openLocalWS(c.GatewayPassword);if e!=nil{return e};defer w.Close()
+ diagnostics.stage("ws_discover");mowers,e:=discover(w,c);if e!=nil{return e};diagnostics.stage("mqtt_connect");m,e:=connectMQTT(c);if e!=nil{return e};defer m.Close()
  defer func(){status(false);_ = m.publish(c.availability(),"offline",true)}()
- if e=m.subscribe(c.Prefix+"/+/mower/command",1);e!=nil{return e}
+ diagnostics.stage("mqtt_subscribe");if e=m.subscribe(c.Prefix+"/+/mower/command",1);e!=nil{return e}
  // Require successful SUBACK before reporting control readiness.
  for{p,e:=m.receive();if e!=nil{return e};if p.header==0x90{if len(p.body)!=3||p.body[0]!=0||p.body[1]!=1||p.body[2]!=0{return errProtocol};break}}
  if e=publishAll(m,c,mowers,root);e!=nil{return e};status(true);log.Print("Gateway MQTT ready; installer not required")
  packets:=make(chan mqttPacket,16);events:=make(chan []byte,16);fail:=make(chan error,2);done:=make(chan struct{});defer close(done)
- go func(){for{p,e:=m.receive();if e!=nil{fail<-e;return};select{case packets<-p:case <-done:return}}}()
- go func(){for{b,e:=w.receive();if e!=nil{fail<-e;return};select{case events<-b:case <-done:return}}}()
- poll:=time.NewTicker(30*time.Second);defer poll.Stop();heartbeat:=time.NewTicker(15*time.Second);defer heartbeat.Stop()
- pending:=map[string]time.Time{}
+ go func(){for{p,e:=m.receive();if e!=nil{fail<-atStage("mqtt_read",e);return};select{case packets<-p:case <-done:return}}}()
+ go func(){for{b,e:=w.receive();if e!=nil{fail<-atStage("ws_read",e);return};select{case events<-b:case <-done:return}}}()
+ poll:=time.NewTicker(pollInterval);defer poll.Stop();heartbeat:=time.NewTicker(heartbeatInterval);defer heartbeat.Stop()
+ pending:=map[string]time.Time{};lastHeartbeat:=time.Now()
+ diagnostics.stage("event_loop")
  for{select{
  case <-ctx.Done():return nil
  case e:=<-fail:return e
- case <-poll.C:if e=publishAll(m,c,mowers,root);e!=nil{return e};status(true)
- case <-heartbeat.C:if e=m.send(0xc0,nil);e!=nil{return e};if e=w.send(9,nil);e!=nil{return e};for id,t:=range pending{if time.Now().After(t){delete(pending,id);log.Print("Command acknowledgement timeout")}}
+ case <-poll.C:if e=publishAll(m,c,mowers,root);e!=nil{return e};status(true);diagnostics.stage("event_loop")
+ case <-heartbeat.C:diagnostics.heartbeat(time.Since(lastHeartbeat));lastHeartbeat=time.Now();diagnostics.stage("heartbeat");if e=m.send(0xc0,nil);e!=nil{return e};if e=w.send(9,nil);e!=nil{return atStage("ws_write",e)};diagnostics.stage("event_loop");for id,t:=range pending{if time.Now().After(t){delete(pending,id);log.Print("Command acknowledgement timeout")}}
  case p:=<-packets:if p.header>>4!=3{continue};topic,action,retained,e:=parsePublish(p);if e!=nil{return e};if retained||len(pending)>=32{continue}
-  for _,mower:=range mowers{if topic!=c.Prefix+"/"+mower.Key+"/mower/command"{continue};command,e:=mower.command(strings.TrimSpace(action));if e!=nil{continue};b,_:=json.Marshal([]any{command});if e=w.send(1,b);e!=nil{return e};pending[command["request_id"].(string)]=time.Now().Add(30*time.Second)}
+  for _,mower:=range mowers{if topic!=c.Prefix+"/"+mower.Key+"/mower/command"{continue};command,e:=mower.command(strings.TrimSpace(action));if e!=nil{continue};b,_:=json.Marshal([]any{command});if e=w.send(1,b);e!=nil{return atStage("ws_write",e)};pending[command["request_id"].(string)]=time.Now().Add(30*time.Second)}
  case b:=<-events:var messages []Message;if json.Unmarshal(b,&messages)!=nil{continue};for _,msg:=range messages{if _,ok:=pending[msg.RequestID];ok{delete(pending,msg.RequestID);log.Printf("Command acknowledged: %t",msg.Success)};for i:=range mowers{apply(&mowers[i],msg);if a:=mowers[i].activity();a!=""{if e=m.publish(c.Prefix+"/"+mowers[i].Key+"/mower/activity/state",a,true);e!=nil{return e}}}}
  }}
 }
 func run(ctx context.Context,c Config,root string,retry time.Duration){
- for ctx.Err()==nil{status(false);if e:=session(ctx,c,root);e!=nil{log.Print("Connection unavailable; retrying")};select{case <-ctx.Done():return;case <-time.After(retry):}}
+ for ctx.Err()==nil{status(false);if e:=session(ctx,c,root);e!=nil{diagnostics.failure(e)};diagnostics.stage("retry_wait");select{case <-ctx.Done():return;case <-time.After(retry):}}
 }
 func main(){
  path:=flag.String("config","/etc/gardena-local/config.json","configuration file");check:=flag.Bool("check",false,"validate configuration, sensor data and local API without publishing");showVersion:=flag.Bool("version",false,"print version");flag.Parse();if *showVersion{fmt.Println(version);return}
@@ -158,5 +162,6 @@ func main(){
  root:="/var/lib/lemonbeatd"
  if *check{if _,e=sensorValues(root,c.Plan);e==nil{e=enableAPI(c.GatewayPassword)};if e==nil{var w *websocket;w,e=connectWS(c.GatewayPassword);if e==nil{_,e=discover(w,c);w.Close()}};if e!=nil{log.Print("Gateway preflight failed");os.Exit(1)};fmt.Println("preflight-ok");return}
  ctx,stop:=signal.NotifyContext(context.Background(),os.Interrupt,syscall.SIGTERM);defer stop()
+ go diagnostics.record(ctx,"/run/gardena-local-diagnostics.json",5*time.Second)
  run(ctx,c,root,15*time.Second)
 }

@@ -2,7 +2,7 @@ name: Local MQTT app
 on:
   pull_request:
   push:
-    branches: [main, feat/local-mqtt-app, fix/gateway-autonomous-runtime, fix/matter-gateway-cleanup]
+    branches: [main, feat/local-mqtt-app, fix/gateway-autonomous-runtime, fix/matter-gateway-cleanup, fix/gateway-diagnostics]
 permissions:
   contents: read
 jobs:

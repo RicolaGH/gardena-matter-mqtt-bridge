@@ -110,3 +110,27 @@ Unbekannte Matter-Units oder umgeleitete Elternverzeichnisse führen zum Abbruch
 Nach Erfolg App wieder stoppen und MQTT prüfen. Die alte Seite mit einer vollständigen
 Browser-Aktualisierung aufrufen; eine bereits geöffnete Seite kann noch im Cache stehen.
 Bei Fehler bleiben Sicherungen erhalten. Die App meldet keinen Erfolg ohne abschließende MQTT-Prüfung.
+
+## Verbindungsdiagnose (0.2.2)
+
+App auf 0.2.2 aktualisieren, starten und **Auf Gateway installieren** ausführen. Ein
+App-Update allein aktualisiert die bereits laufende Gateway-Binary nicht. Danach ist
+**Verbindungsdiagnose** in der Oberfläche verfügbar. Die App darf zur Beobachtung laufen
+oder gestoppt bleiben: Die Diagnose entsteht unabhängig im Gateway-Dienst.
+
+Bei erneutem Ausfall die App starten, bis zu etwa 30 Sekunden auf das Einlesen warten
+und den Inhalt von **Verbindungsdiagnose** kopieren. Zeitangaben tragen ausdrücklich UTC;
+Home Assistant kann dieselben Ereignisse in der lokalen Zeitzone anzeigen.
+
+Die Diagnose enthält den laufenden Arbeitsschritt und dessen Dauer, MQTT-Sende-/Empfangszeiten,
+Ping-/Pong-Zähler, Sensor-Lesedauer/-Fehler, den Abstand der Lebenszeichen sowie Go-Heap
+und Goroutinen. Die letzten 32 Verbindungsfehler werden mit Quelle und Fehlerklasse gespeichert.
+Es werden keine Broker-Adressen, Gerätekennungen, Zugangsdaten, Payloads oder rohen Fehlertexte
+aufgenommen. Die private Datei `/run/gardena-local-diagnostics.json` wird alle fünf Sekunden
+atomar ersetzt. Die Historie beginnt mit jedem Prozessstart neu und ist kein dauerhaftes Log.
+Die HA-App liest nur diese begrenzte Datei und zeigt das Alter der Messung an. Bei einem
+Abruffehler bleibt der letzte Stand ausdrücklich als nicht aktuell gekennzeichnet erhalten.
+
+Die Version verlängert keine Timeouts und unterdrückt keine Offline-Meldungen. Ein
+simulierter blockierter Sensorzugriff dient zur Prüfung der Diagnose; er beweist nicht,
+dass ein realer Netzwerkausfall diese Ursache hat.

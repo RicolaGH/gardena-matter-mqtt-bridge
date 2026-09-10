@@ -71,10 +71,10 @@ def runtime_config(cfg, migration):
         'mower_ids': migration['mower_ids']}
 
 
-def health(gw):
+def health(gw, expected_version=None):
     raw = gw.ssh('systemctl is-active --quiet '+SERVICE+' && cat /run/gardena-local-status.json')
     state = json.loads(raw)
-    return state.get('ready') is True and state.get('version') == '0.2.0' and abs(time.time()-state.get('updated',0)) < 90
+    return state.get('ready') is True and state.get('version') in ((expected_version,) if expected_version else ('0.2.0', '0.2.2')) and abs(time.time()-state.get('updated',0)) < 90
 
 
 def install(stop_worker):
@@ -114,7 +114,7 @@ def install(stop_worker):
         deadline = time.monotonic()+120
         while time.monotonic()<deadline:
             try:
-                if health(gw):
+                if health(gw, expected_version='0.2.2'):
                     storage.write('gateway_deployment.json', {'phase':'active','binding':binding(cfg),'digest':digest})
                     report('gateway', message='MQTT läuft auf dem Gateway. Diese HA-App kann gestoppt werden.',
                            sensors=len(payload['plan']),mowers=len(payload['mower_ids']))

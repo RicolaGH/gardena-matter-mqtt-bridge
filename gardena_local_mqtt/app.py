@@ -11,6 +11,7 @@ import time
 import storage
 import deploy
 import cleanup
+import diagnostics
 
 DEPLOY_LOCK = threading.Lock()
 
@@ -32,6 +33,7 @@ Die Übernahme beendet den bisherigen MQTT-Publisher auf dem Gateway. Dateien bl
 <p>Alte Matter-Dienste und Webseite sichern und aus dem Gateway-Betrieb entfernen. MQTT muss bereits auf dem Gateway laufen.</p>
 <button id="cleanup" disabled>Alte Matter-Komponenten entfernen</button>
 <p id="cleanup-status"></p>
+<details><summary>Verbindungsdiagnose</summary><p>Wird etwa alle 30 Sekunden vom Gateway gelesen. Die Aufzeichnung läuft auch bei gestoppter HA-App.</p><pre id="diagnostics" style="white-space:pre-wrap;overflow-wrap:anywhere">Noch keine Diagnose.</pre></details>
 <p id="result" role="status"></p></main><script>
 const statusNode=document.getElementById('status'), take=document.getElementById('take'), back=document.getElementById('back');
 async function refresh(){try{let r=await fetch('api/status');if(!r.ok)throw Error();let s=await r.json();
@@ -39,6 +41,7 @@ statusNode.textContent=s.message+'\\n'+(s.sensors===undefined?'':s.sensors+' Sen
 take.disabled=s.mode!=='preview'||!s.fresh;back.disabled=!s.can_rollback;
 document.getElementById('install').disabled=!s.can_install;document.getElementById('restore').disabled=!s.can_restore;
 document.getElementById('cleanup').disabled=!s.can_cleanup;document.getElementById('cleanup-status').textContent=s.cleanup_message||'';
+document.getElementById('diagnostics').textContent=s.diagnostics_text;
 if(s.mode==='gateway')document.getElementById('result').textContent='Installation abgeschlossen.';
 }catch(e){statusNode.textContent='Status momentan nicht erreichbar.';take.disabled=true;}}
 async function action(name){take.disabled=true;back.disabled=true;try{let r=await fetch('api/'+name,{method:'POST'});
@@ -106,6 +109,7 @@ class Handler(BaseHTTPRequestHandler):
             cleanup_state = storage.read('cleanup.json', {}) or {}
             status['can_cleanup'] = gateway_mode and status.get('mode') == 'gateway' and status['fresh'] and not DEPLOY_LOCK.locked()
             status['cleanup_message'] = cleanup_state.get('message', 'Bereinigung läuft …' if cleanup_state.get('phase') == 'running' else '')
+            status['diagnostics_text'] = diagnostics.display(storage.read('diagnostics.json', {}))
             self.send(200, status)
         else:
             self.send(404, {})
@@ -198,6 +202,10 @@ def main():
             if storage.read('gateway_deployment.json'):
                 stop_worker()
                 if time.monotonic() >= next_check:
+                    try:
+                        diagnostics.refresh()
+                    except Exception:
+                        pass
                     try:
                         deploy.refresh_status()
                     except Exception:

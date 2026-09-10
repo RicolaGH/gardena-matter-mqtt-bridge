@@ -1,3 +1,11 @@
+## 0.2.2
+
+- Gateway-Diagnose für MQTT-Timeouts: Arbeitsschritt, Sensor-Lesezeit, Ping/Pong-Zähler, Zeitpunkte und begrenzte Fehlerhistorie.
+- Unabhängige Diagnoseaufzeichnung auch während einer blockierten Hauptschleife und bei gestoppter HA-App.
+- Anzeige in der HA-App ohne SSH-Befehle; keine Zugangsdaten oder Nutzdaten in Diagnosemeldungen.
+- Keine Änderung der Netzwerk-Timeouts oder Verfügbarkeitsregeln. Diagnoseversion zur Ursachenprüfung.
+- Neue Gateway-Runtime muss über „Auf Gateway installieren“ übertragen werden.
+
 ## 0.2.1
 
 - Explizite Gateway-Bereinigung für alte Matter-Dienste und Webseite.
