@@ -1,91 +1,96 @@
-# GARDENA Local MQTT — Testversion 0.1.1
+# GARDENA Local MQTT 0.2.0 — Gateway-Betrieb
 
-Diese eigene Home-Assistant-App liest Sensorwerte und steuert Mäher lokal über
-das GARDENA smart Gateway. Sie lädt keine Releases aus dem Originalprojekt,
-installiert keine Gateway-Binaries und benötigt keinen Matter-/Toggle-Dienst.
-Gateway-Firmware, SSH, lokale WebSocket-API und ein MQTT-Broker bleiben erforderlich.
-Beim Containerbau werden weiterhin das HA-Basisimage und Alpine-Pakete geladen.
+Die MQTT-Software läuft als eigener Dienst **auf dem GARDENA smart Gateway (19005)**.
+Die Home-Assistant-App übernimmt Einrichtung, Updates und Diagnose. Nach erfolgreicher
+Installation darf sie gestoppt werden: Sensoren und Mähersteuerung funktionieren weiter.
+Der MQTT-Broker muss erreichbar bleiben. Läuft Mosquitto in HA, muss natürlich der
+Broker selbst weiterlaufen; nur diese GARDENA-App wird nicht mehr benötigt.
 
-## Einrichtung und Vorschau
+Version 0.1.x hatte den MQTT-Prozess fälschlich in die HA-App verlagert. Dieses Update
+korrigiert die Architektur. Ein App-Update allein verschiebt den Prozess noch nicht:
+Die unten beschriebene Gateway-Installation muss einmal ausgeführt werden.
 
-1. Die App **GARDENA Local MQTT (Preview)** aus diesem Repository installieren.
-2. Gateway-IP, Geräte-ID sowie die bisherigen MQTT-Einstellungen übernehmen.
-   Die Geräte-ID bleibt geheim; die ersten acht Zeichen dienen der Gateway-Anmeldung.
-3. App starten und **Benutzeroberfläche öffnen** wählen.
-4. Die Vorschau zeigt die Zahl der zugeordneten Sensoren und Mäher. Sie veröffentlicht
-   keine Sensor-Discovery und akzeptiert keine Steuerbefehle. Der alte Gateway-Publisher
-   läuft bis zur Übernahme weiter.
+## Wechsel von 0.1.1
 
-Schon die Vorbereitung meldet sich lokal am Gateway an, hinterlegt bei Bedarf den
-öffentlichen SSH-Schlüssel dieser App und aktiviert SSH sowie die lokale WebSocket-API.
-Ein eigener persistenter Hostkey-Speicher lehnt spätere Schlüsselwechsel ab. Der erste
-Kontakt bleibt TOFU. SSH-/API-Einstellungen können auch bestehende Gateway-Apps betreffen.
+1. Backup der App behalten und auf 0.2.0 aktualisieren. Die bisherigen Einstellungen,
+   SSH-Schlüssel, Sensorzuordnungen und Übernahmedaten bleiben in `/data` erhalten.
+2. App starten und die Benutzeroberfläche öffnen. Bis zur Umschaltung übernimmt der
+   bisherige HA-Prozess weiterhin MQTT, wenn bereits eine aktive Übernahme vorliegt.
+3. **Auf Gateway installieren** auswählen. Es werden freier Speicher, Prüfsumme,
+   Sensorwerte und die lokale WebSocket-API geprüft. Dabei wird kein Mähbefehl gesendet.
+4. Erst nach erfolgreicher Vorprüfung stoppt der Installer den HA-MQTT-Prozess und
+   startet/aktiviert `gardena-local.service` auf dem Gateway. Ein Journal verhindert
+   bei unklarem Ergebnis, dass zusätzlich wieder der HA-Controller gestartet wird.
+5. Warten, bis **MQTT läuft auf dem Gateway. Diese HA-App kann gestoppt werden.** erscheint.
+6. **Diese GARDENA-App stoppen.** Nach mindestens zwei Minuten Sensorverfügbarkeit und
+   einen Parkbefehl in HA prüfen. Ein sicher beaufsichtigter Start/Rückkehr-Test kann folgen.
+7. Den Gateway-Neustart und einen Broker-Neustart separat testen. Der Gateway-Dienst
+   startet selbstständig und verbindet sich erneut; die HA-App bleibt dabei gestoppt.
 
-## Übernahme
+Der tatsächliche Gateway-Test für 0.2.0 steht noch aus. Containerbau und MIPS-Emulation
+ersetzen keine Prüfung von Speicherverbrauch, Gateway-Neustart und Laufzeit auf Hardware.
 
-1. Backup der bisherigen Bridge-App behalten.
-2. In der bisherigen **HA-Bridge-App** Autostart und Watchdog ausschalten und sie stoppen.
-   Nur eine App darf die Mäherbefehle verarbeiten.
-3. In der neuen Oberfläche **Sensoren und Steuerung übernehmen** auswählen.
-4. Die App prüft die vorhandenen Sensor-Discovery-Einträge erneut und beendet/deaktiviert
-   anschließend `gardena-mqtt-publisher.service` auf dem Gateway. Dateien bleiben erhalten.
-5. Home Assistant: Gerätezuordnung, Sensorwerte und einen Parkbefehl prüfen. Danach die
-   neue App neu starten und die erneute Verbindung prüfen. Erst dann Autostart einschalten.
+## Neue Installation
 
-Vorhandene Sensor-Discovery-Topics, `unique_id`, Zustandstopics und Gerätekennungen bleiben
-erhalten. Die Verfügbarkeit wechselt auf `<mqtt_topic_prefix>/local/availability`.
-Sensordaten werden alle 30 Sekunden gelesen; Mäheraktivität wird über WebSocket aktualisiert.
-Gespeicherte MQTT-Befehle werden niemals nachträglich ausgeführt. Ohne Gateway-Verbindung
-meldet die App ihre Entitäten offline und versucht die Verbindung erneut.
+Gateway-Adresse, Geräte-ID und MQTT-Zugangsdaten eintragen. Die ersten acht Zeichen der
+Geräte-ID sind das Gateway-Anmeldepasswort. Zunächst die Sensorvorschau prüfen und
+**Sensoren und Steuerung übernehmen** auswählen; bei bestehenden Installationen vorher
+andere HA-Controller stoppen. Danach **Auf Gateway installieren** ausführen.
+Die erste Version unterstützt weiterhin die vorhandene eindeutige Ein-Mäher-Zuordnung.
+Bei unbekannten Sensortypen oder mehrdeutigen Identitäten wird die Migration blockiert.
 
-Die erste Migration unterstützt **ein eindeutig zugeordnetes LsDL-Gerät und einen Mäher**.
-Bei mehreren Geräten/Publisher-Identitäten oder fehlenden/unerkannten Sensorwerten wird
-die Übernahme blockiert. Neu eingerichtete Sensor-Gateways ohne Mäher können mehrere
-Geräte mit eigenen stabilen Kennungen veröffentlichen. Mäher ohne lesbare LsDL-Sensoren
-(möglicherweise neuere Generationen) benötigen einen zusätzlichen Sensoradapter.
-Die bekannten Mäherbefehle sind übernommen, deren Unterstützung allein garantiert noch
-keine vollständige Sensorunterstützung für jede Generation.
+## Was auf dem Gateway installiert wird
 
-## Zurückkehren
+- Ein selbst gebautes, statisches Linux/MIPS-little-endian-Programm mit Software-Floating-Point.
+- Programm und Konfiguration unter `/usr/local/lib/gardena-local/releases/`, ein `current`-Link
+  und `/etc/systemd/system/gardena-local.service` mit `Restart=always` und Autostart.
+- Sensorwerte werden direkt aus `/var/lib/lemonbeatd` gelesen. Steuerbefehle gehen an
+  die lokale Gateway-WebSocket-API auf Loopback. Es gibt keinen HA-SSH-Tunnel im Betrieb.
+- MQTT-Zugangsdaten stehen ausschließlich in einer privaten Konfigurationsdatei (0600),
+  nicht in Prozessargumenten. Der öffentliche SSH-Schlüssel dient nur der Verwaltung.
+- Keine Downloads aus dem Original-Bridge-Repository, keine Abhängigkeit vom bisherigen
+  Gateway-Publisher oder dessen Matter-/Toggle-Weboberfläche. Die Basis ist weiterhin
+  die Hersteller-Firmware mit ihren Geräte- und lokalen API-Diensten.
 
-In der neuen Oberfläche **Zum bisherigen Publisher zurückkehren** wählen. Die App
-stellt die vorherigen Sensor-Discovery-Einträge und den vorherigen Aktivierungszustand
-des Gateway-Publishers wieder her und beendet ihren Worker. Anschließend diese App
-stoppen und die alte HA-App wieder starten. Ihre Mäher-Discovery wird beim Start erneuert.
-Falls deren SSH-Schlüssel nicht mehr akzeptiert wird, den Einrichtungs-/Deploy-Vorgang
-der alten App verwenden. Nach der Rückkehr die alte Geräteanzeige und Steuerung prüfen.
+Die Gateway-Binary wird beim App-Containerbau aus `gateway_runtime/` erzeugt und im
+App-Image mitgeliefert. Der Build benötigt das Go- und HA-Basisimage sowie Alpine-Pakete.
+Das Gateway selbst lädt weder Code noch Bibliotheken aus dem Internet.
 
-Ein privates, atomar geschriebenes Migrationsjournal erlaubt die Wiederherstellung nach
-einem Abbruch. Bei Änderungen an Gateway, Broker oder Topic-Präfixen während einer
-aktiven Migration müssen zuerst die bisherigen Einstellungen wieder eingesetzt werden.
-Die Rückkehr benötigt weiterhin eine erreichbare Gateway- und Broker-Verbindung.
+## Status, Abbruch und Rückkehr
 
-## Umfang und Grenzen
+Bei installiertem Gateway-Dienst fragt die HA-App nur den Dienststatus ab. Das Stoppen
+oder Deinstallieren der HA-App stoppt den Gateway-Dienst nicht und sendet kein MQTT-offline.
+Bei Broker-/API-Ausfällen setzt der Gateway-Dienst die Verfügbarkeit auf offline und
+versucht die Verbindung erneut. Gespeicherte MQTT-Befehle werden nicht ausgeführt.
 
-- Unterstützte LsDL-Ressourcen: Batterie, Mäherstatus, Funkqualität, Lauf-/Mähzeit,
-  Fehlercode, Bodenfeuchte/-temperatur, Licht, Frostwarnung und Messintervall, sofern vorhanden.
-- Lokale API und SSH reichen aus; keine eingehenden HA-Ports, kein Host-Netzwerk,
-  keine Supervisor-Administrationsrechte. Oberfläche nur über HA Ingress.
-- Matter wird weder installiert noch verwaltet. Bestehende Matter-Dateien/Dienste
-  werden nicht entfernt; ihre Funktion nach Änderungen der lokalen API ist separat zu prüfen.
-- MQTT-TLS und Gateway-Zertifikatsprüfung sind die zurückgestellte Sicherheitsfolgearbeit.
-- Broker-Discovery ist keine kryptografisch gesicherte Gerätezuordnung. Nur für einen
-  vertrauenswürdigen Broker mit kontrollierten Veröffentlichungsrechten verwenden.
-- Die Snapshot-Größe ist auf 8 MiB, einzelne JSON-Dateien auf 64 KiB und die Dateizahl
-  auf 4096 begrenzt. Archivdateien werden nicht ins Dateisystem entpackt.
-- Diese Version ist noch nicht auf einem echten Gateway getestet. Die Tests verwenden
-  synthetische LsDL-Daten nach dem dokumentierten Format. Der Vorschaulauf auf echter
-  Hardware muss insbesondere die tatsächlichen Sensor-Schemas bestätigen.
+Vorprüfung fehlgeschlagen: Der bisherige HA-Prozess bleibt aktiv. Nach fehlgeschlagener
+Umschaltung darf er erst wieder laufen, wenn der neue Gateway-Dienst sicher gestoppt
+wurde. Bei fehlender SSH-Verbindung bleibt das Umschaltjournal deshalb bestehen.
+**HA-Betrieb wiederherstellen** stoppt/deaktiviert den neuen Gateway-Dienst und startet
+anschließend den bisherigen Prozess in der App. Das ist eine Rückfalloption, kein
+notwendiger Teil des normalen Betriebs. Alte 0.1.x-Backups nicht parallel zu einem
+laufenden Gateway-Dienst starten.
 
-## Entwicklung
+Vorhandene Matter-Dateien und Vendor-Dienste werden nicht gelöscht. Bei Platzmangel
+bricht die Vorbereitung ab; ein gezieltes Aufräumen erfolgt erst nach Prüfung.
+OTA-Firmwareupdates können das Overlay verändern. Gateway-Reboot ist Teil des Tests;
+Unverwundbarkeit gegenüber beliebigen Hersteller-OTA-Updates wird nicht zugesichert.
 
-`python3 -m unittest discover -s gardena_local_mqtt/tests -v`
+## Zurückgestellte Sicherheitsthemen
 
-Der Workflow `Local MQTT app` prüft Tests und Containerbau auf amd64 und aarch64.
-Der gesamte Build-Kontext liegt in `gardena_local_mqtt/`; die bisherige App und der
-Windows-Installer sind keine Laufzeit- oder Build-Abhängigkeiten.
+MQTT-TLS und unabhängige Prüfung des Gateway-HTTPS-Zertifikats bleiben zurückgestellt.
+SSH speichert Hostkeys dauerhaft und lehnt geänderte Schlüssel ab; erster Kontakt ist
+TOFU. Die runtimeeigene lokale API-Verbindung verwendet ausschließlich Loopback.
+Die Broker-Discovery ist kein kryptografischer Identitätsnachweis. Der Broker und seine
+Publikationsrechte müssen vertrauenswürdig sein.
 
-Formatreferenz für LsDL: `technical.md` und `mqtt.md` im bestehenden Repository.
-HA-App-Konfiguration: https://developers.home-assistant.io/docs/apps/configuration/
-Der Transport-/Mähercode ist eine angepasste Kopie des getesteten Fork-Stands 0.3.2;
-Urheber- und Lizenzhinweise bleiben in LICENSE und NOTICE enthalten.
+## Entwicklung und Prüfungen
+
+- `python3 -m unittest discover -s gardena_local_mqtt/tests -v`
+- `cd gardena_local_mqtt/gateway_runtime && go test ./...`
+- Cross-Build: `CGO_ENABLED=0 GOOS=linux GOARCH=mipsle GOMIPS=softfloat go build -trimpath -ldflags="-s -w" .`
+- CI: native amd64/aarch64-App-Container, Gateway-Protokolltests ohne HA-Installer,
+  Integrationsprüfung mit simuliertem Broker und lokaler API, MIPS-Ausführung unter QEMU.
+
+Die Urheber- und Lizenzhinweise stehen in LICENSE und NOTICE. LsDL-Format und bisherige
+Mäherbefehle stammen aus den dokumentierten Schnittstellen und dem getesteten Fork-Code.
